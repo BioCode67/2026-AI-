@@ -148,6 +148,10 @@ def main(n_sites: int = 12):
         print("    → 파일을 넣고 다시 실행하면 해당 지표가 추가됩니다.")
     else:
         print("  ✅ 전 지표 실데이터 — 그대로 제출 가능")
+    import make_deck as _md
+    if "적어주세요" in _md.MEMBERS:
+        print("  ※ 표지의 팀원 이름이 아직 비어 있습니다 —")
+        print('     CBC_MEMBERS="홍길동 · 김철수" python3 src/run_all.py 로 다시 만드시면 됩니다.')
     print("  산출물: outputs/figures/(8장) · outputs/tables/(9종) ·"
           " deliverables/{기획서 pptx·pdf, dashboard.html, 제출용 zip}")
     print(BAR)

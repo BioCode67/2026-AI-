@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """기획서 PPTX 자동 생성 — outputs/ 의 실제 산출물 수치를 그대로 반영"""
 from __future__ import annotations
+import os
 import json, sys
 from pathlib import Path
 import pandas as pd
@@ -19,8 +20,10 @@ from config import TAB, FIG, DELIV
 # 한글·영문을 같은 서체로 지정한다.
 # 서로 다른 서체를 주면 뷰어(특히 PDF 변환기)가 한글↔문장부호 경계를 '스크립트 경계'로
 # 보고 자동으로 자간을 벌려 "바라며 ," 처럼 부호 앞에 공백이 생긴다.
-TEAM    = "다시봄"
-MEMBERS = "팀원 이름을 적어주세요"
+TEAM    = os.environ.get("CBC_TEAM") or "다시봄"
+# 표지에 들어갈 이름. 아래 따옴표 안을 고치거나 CBC_MEMBERS 환경변수로 넘기면 됩니다.
+#   예)  CBC_MEMBERS="홍길동 · 김철수" python3 src/run_all.py
+MEMBERS = os.environ.get("CBC_MEMBERS") or "팀원 이름을 적어주세요"
 
 FONT     = "맑은 고딕"          # East-Asian (한글)
 FONT_LAT = "맑은 고딕"          # Latin (영문·숫자) — 같은 서체로 묶어 경계 자체를 없앰
