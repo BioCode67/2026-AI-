@@ -114,6 +114,25 @@ def zone_from_hdong(name) -> str | None:
     return None
 
 
+def only_cheonan(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    천안시 행만 남긴다 — 생활권 매칭 **전에** 반드시 거쳐야 하는 단계.
+
+    상가정보·표준데이터는 시도/전국 단위로 배포되는데, 행정동명 컬럼에는
+    시군구가 없이 '중앙동'처럼 동 이름만 들어 있다. 그런데 중앙동·북면·동면·
+    백석동·대흥동 같은 이름은 충남 다른 시군에도 존재하므로, 시군구를 먼저
+    거르지 않으면 남의 동네 점포가 천안 지표에 섞여 들어간다.
+    """
+    for key in ("시군구명", "시군구", "행정구역", "소재지전체주소", "도로명주소",
+                "소재지도로명주소", "소재지지번주소", "주소"):
+        col = find_col(df, key)
+        if col is not None:
+            m = df[col].astype(str).str.contains("천안", na=False)
+            if m.any():
+                return df[m]
+    return df                      # 시군구 정보가 아예 없으면 그대로 (경고는 호출부에서)
+
+
 def base_frame() -> pd.DataFrame:
     return pd.DataFrame({
         "zone": ZONE_NAMES,
@@ -177,6 +196,9 @@ def _parse_population(df):
     """
     region_col = find_col(df, "행정구역", "행정기관", "읍면동", "구분") or df.columns[0]
     df = df.copy()
+    m = df[region_col].astype(str).str.contains("천안", na=False)
+    if m.any():
+        df = df[m]                        # 전국 파일이 들어와도 천안만 남긴다
     df["zone"] = df[region_col].map(zone_from_hdong)
     df = df[df["zone"].notna()]
     if not len(df):
@@ -343,7 +365,10 @@ def _business_from_sangga(sg):
     hd = find_col(sg, "행정동명")
     adr = find_col(sg, "도로명주소", "지번주소", "소재지")
     mid = find_col(sg, "상권업종중분류명", "상권업종대분류명", "표준산업분류명")
-    d = sg.copy()
+    n_all = len(sg)
+    d = only_cheonan(sg).copy()          # ← 동 이름 매칭 전에 시군구부터 거른다
+    if len(d) == n_all and find_col(sg, "시군구명") is None:
+        log("    ! 시군구 컬럼이 없어 천안 선별을 건너뜁니다 — 다른 시군이 섞일 수 있습니다")
     if hd is not None:
         d["zone"] = d[hd].map(zone_from_hdong)
     if hd is None or d["zone"].notna().sum() == 0:
@@ -498,7 +523,9 @@ def load_facilities() -> tuple[pd.DataFrame, pd.DataFrame]:
         soc = _soc_type_of(f.stem)
         lat = find_col(d, "위도", "latitude", "lat", "Y좌표", "좌표정보(y)")
         lon = find_col(d, "경도", "longitude", "lon", "X좌표", "좌표정보(x)")
-        adr = find_col(d, "소재지도로명주소", "도로명주소", "소재지지번주소", "소재지전체주소", "주소")
+        d = only_cheonan(d)
+        adr = find_col(d, "소재지도로명주소", "도로명주소", "소재지지번주소",
+                       "소재지전체주소", "주소")
         z = d[adr].map(zone_from_address) if adr else None
         if z is None or z.notna().sum() == 0:
             continue
@@ -516,7 +543,7 @@ def load_facilities() -> tuple[pd.DataFrame, pd.DataFrame]:
         hd = find_col(sg, "행정동명"); big = find_col(sg, "상권업종대분류명")
         lat = find_col(sg, "위도"); lon = find_col(sg, "경도")
         if hd is not None:
-            s = sg.copy()
+            s = only_cheonan(sg).copy()
             s["zone"] = s[hd].map(zone_from_hdong)
             s = s[s.zone.notna()]
             if big:
@@ -592,21 +619,19 @@ def _illustrative_facilities():
 #  4) 주거  ─ 빈집 · 노후건축물
 # ═════════════════════════════════════════════════════════════
 def load_housing(pop: pd.DataFrame) -> pd.DataFrame:
+    """
+    빈집 지표.
+    KOSIS 공표 단위가 대부분 **시군구(동남구/서북구)** 이므로 읍면동 매칭이 안 된다.
+    → 구 단위 값이 들어오면 해당 구에 속한 생활권 전체에 같은 값을 적용하고,
+      '구 단위 배분'임을 출처에 명시한다(가정을 숨기지 않기 위함).
+    """
     df = load_stack("vacant_house")
     out = base_frame().set_index("zone")
     if df is not None:
         try:
-            rc = find_col(df, "행정구역", "읍면동", "지역", "동", "시군구")
-            vc = find_col(df, "빈집", "빈 집", "공가")
-            if rc and vc:
-                d = df.copy()
-                d["zone"] = d[rc].map(zone_from_hdong)
-                d = d[d.zone.notna()]
-                v = pd.to_numeric(d[vc].astype(str).str.replace(",", ""), errors="coerce")
-                g = d.assign(v=v).groupby("zone")["v"].sum()
-                hh = pop.set_index("zone")["pop"] / 2.3         # 세대 근사
-                out["vacancy_rate"] = (g / hh * 100).clip(0, 40)
-                note("주거", "REAL", "빈집 통계(KOSIS/부동산원)", f"{len(d)}행", len(d))
+            got = _parse_vacancy(df, pop, out)
+            if got is not None:
+                out["vacancy_rate"] = got
                 out["old_building"] = _illustrative_old_building()
                 return out.reset_index()
         except Exception as e:
@@ -619,6 +644,53 @@ def load_housing(pop: pd.DataFrame) -> pd.DataFrame:
     note("주거", "ILLUSTRATIVE", "예시 생성(seed=%d)" % (RANDOM_SEED + 3),
          "data/raw/vacant_house.csv 투입 시 자동 대체")
     return out.reset_index()
+
+
+def _parse_vacancy(df, pop, out):
+    """읍면동 → 구 → 시 순으로 가장 세밀한 단위를 찾아 빈집률을 만든다."""
+    rc = find_col(df, "행정구역", "지역", "시군구", "읍면동", "구분") or df.columns[0]
+    d = only_cheonan(df).copy()
+    if not len(d):
+        d = df.copy()
+    reg = d[rc].astype(str)
+
+    def num(col):
+        return pd.to_numeric(col.astype(str).str.replace(r"[,\s%]", "", regex=True),
+                             errors="coerce")
+
+    # 값 컬럼: '비율'이 있으면 그대로, 없으면 빈집 호수 / 세대수로 계산
+    ratio_col = find_col(d, "비율", "율")
+    cnt_col = find_col(d, "미거주", "빈집", "공가", "호수")
+
+    # ① 읍면동 단위인가?
+    z = reg.map(zone_from_hdong)
+    if z.notna().sum() >= 10:
+        v = num(d[ratio_col]) if ratio_col else None
+        if v is None and cnt_col is not None:
+            hh = pop.set_index("zone")["pop"] / 2.3
+            v = num(d[cnt_col]) / z.map(hh) * 100
+        g = pd.DataFrame({"zone": z, "v": v}).dropna().groupby("zone")["v"].mean()
+        note("주거", "REAL", "KOSIS 미거주주택(빈집) 통계", f"읍면동 단위 {len(g)}곳", len(d))
+        return g.reindex(out.index)
+
+    # ② 구 단위(동남구/서북구)인가?
+    gu = reg.str.extract(r"(동남구|서북구)")[0]
+    if gu.notna().any():
+        v = num(d[ratio_col]) if ratio_col else (
+            num(d[cnt_col]) if cnt_col is not None else None)
+        if v is None:
+            return None
+        # 연도 컬럼이 여러 개면 가장 최근 값을 쓰도록 숫자 컬럼 중 마지막을 사용
+        if ratio_col is None and cnt_col is None:
+            return None
+        gv = pd.DataFrame({"gu": gu, "v": v}).dropna().groupby("gu")["v"].mean()
+        res = out["gu"].map(gv) if "gu" in out.columns else \
+            pd.Series(out.index.map(lambda z_: gv.get(ZONE_GU[z_], np.nan)), index=out.index)
+        note("주거", "PARTIAL", "KOSIS 미거주주택(빈집) 통계",
+             f"자치구 단위({', '.join(f'{k} {x:.1f}%' for k, x in gv.items())}) "
+             "→ 구에 속한 생활권에 동일 적용", len(d))
+        return res
+    return None
 
 
 def _illustrative_old_building():
@@ -637,7 +709,8 @@ def load_transit() -> pd.DataFrame:
         try:
             adr = find_col(df, "소재지", "주소", "정류소명", "위치")
             if adr:
-                d = df.copy(); d["zone"] = d[adr].map(zone_from_address)
+                d = only_cheonan(df).copy()
+                d["zone"] = d[adr].map(zone_from_address)
                 g = d[d.zone.notna()].groupby("zone").size()
                 out["transit_density"] = g / pd.Series(AREA_KM2)
                 note("이동성", "REAL", "버스정류소 현황", f"{int(g.sum())}개소", len(d))
