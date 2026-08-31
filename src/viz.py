@@ -1,5 +1,13 @@
 # -*- coding: utf-8 -*-
-"""시각화 — 제출용 그림 8종 (한글 폰트 적용)"""
+"""
+시각화 — 제출용 그림 8종
+
+설계 기준
+ · 색은 눈으로 고르지 않고 검증 스크립트를 통과한 조합만 쓴다(config.TYPE_COLOR 주석 참조)
+ · 마크는 얇게, 데이터 끝은 둥글게, 채움 사이에는 표면색 간격을 둔다
+ · 격자·축은 뒤로 물리고, 라벨은 필요한 곳에만 직접 붙인다
+ · 값 라벨을 항상 함께 두어 색 대비가 낮은 계열도 색만으로 읽히지 않게 한다
+"""
 from __future__ import annotations
 import sys, numpy as np, pandas as pd
 from pathlib import Path
@@ -7,30 +15,131 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib import font_manager as fm
-from matplotlib.patches import Patch
+from matplotlib.patches import Patch, FancyBboxPatch
+from matplotlib.path import Path as MPath
+from matplotlib.patches import PathPatch
+from matplotlib.colors import LinearSegmentedColormap
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from config import FIG, DOMAINS, TYPE_ORDER, TYPE_COLOR, INDICATORS
+from config import (FIG, DOMAINS, TYPE_ORDER, TYPE_COLOR, INDICATORS,
+                    SURFACE, INK, INK_2, INK_MUTE, GRID, AXIS,
+                    SEQ_BLUE, DIV_LOW, DIV_MID, DIV_HIGH,
+                    ST_WARN, ST_CRITICAL)
 import ingest as I
 
 for f in Path.home().glob(".fonts/Nanum*.ttf"):
     fm.fontManager.addfont(str(f))
+
+# 타이포 스케일 (pt) — 한 단계씩만 차이 나게 해 위계를 분명히
+T_TITLE, T_SUB, T_AXIS, T_TICK, T_LABEL, T_NOTE = 16, 11.5, 11, 10.5, 10, 10
+
 plt.rcParams.update({
     "font.family": "NanumGothic", "axes.unicode_minus": False,
-    "figure.dpi": 130, "savefig.dpi": 190, "savefig.bbox": "tight",
-    "axes.edgecolor": "#C9CED6", "axes.linewidth": .9,
-    "axes.titlesize": 15, "axes.titleweight": "bold", "axes.labelsize": 11,
-    "xtick.labelsize": 10, "ytick.labelsize": 10, "legend.fontsize": 10,
-    "axes.grid": True, "grid.color": "#EBEEF2", "grid.linewidth": .9,
-    "figure.facecolor": "white", "axes.facecolor": "white",
+    "figure.dpi": 130, "savefig.dpi": 200, "savefig.bbox": "tight",
+    "savefig.pad_inches": 0.28,
+    "figure.facecolor": SURFACE, "axes.facecolor": SURFACE,
+    "savefig.facecolor": SURFACE,
+    "axes.edgecolor": AXIS, "axes.linewidth": 0.8,
+    "axes.labelcolor": INK_2, "axes.labelsize": T_AXIS, "axes.labelpad": 9,
+    "axes.titlesize": T_TITLE, "axes.titleweight": "bold", "axes.titlecolor": INK,
+    "xtick.labelsize": T_TICK, "ytick.labelsize": T_TICK,
+    "xtick.color": INK_2, "ytick.color": INK_2,
+    "xtick.major.size": 0, "ytick.major.size": 0, "xtick.major.pad": 7,
+    "legend.fontsize": T_LABEL, "legend.frameon": False,
+    "axes.grid": True, "grid.color": GRID, "grid.linewidth": 0.9,
+    "axes.axisbelow": True,
 })
-INK, MUTE, ACCENT = "#1B2430", "#6B7684", "#D64545"
+
+SEQ_CMAP = LinearSegmentedColormap.from_list("seq_blue", SEQ_BLUE)
+DIV_CMAP = LinearSegmentedColormap.from_list("div_br", [DIV_LOW, DIV_MID, DIV_HIGH])
 BADGE = {"txt": "", "on": False}
+
+
+# ── 공통 헬퍼 ────────────────────────────────────────────────
+def _spines(ax, keep=()):
+    for k, sp in ax.spines.items():
+        sp.set_visible(k in keep)
+
+
+def title(ax, main, sub=None, pad=16):
+    ax.set_title(main, loc="left", pad=pad + (14 if sub else 0))
+    if sub:
+        ax.text(0, 1.012, sub, transform=ax.transAxes, fontsize=T_SUB,
+                color=INK_MUTE, va="bottom", ha="left")
+
+
+def note(fig, text, y=-0.055):
+    fig.text(0.008, y, text, fontsize=T_NOTE, color=INK_MUTE, va="top", linespacing=1.55)
+
+
+def legend(ax, types, **kw):
+    kw.setdefault("loc", "lower right")
+    handles = [Patch(facecolor=TYPE_COLOR[t], label=t, edgecolor=SURFACE, linewidth=1.4)
+               for t in TYPE_ORDER if t in types]
+    lg = ax.legend(handles=handles, handlelength=.95, handleheight=.95,
+                   borderpad=.6, labelspacing=.62, **kw)
+    for t in lg.get_texts():
+        t.set_color(INK_2)
+    return lg
+
+
+def hbar(ax, y, width, color, h=0.62, r_frac=0.5, x0=0.0):
+    """데이터 끝만 둥근 가로 막대 (기준선 쪽은 각지게)."""
+    if width <= 0:
+        return
+    r = min(h * r_frac / 2, width)
+    y0, y1 = y - h / 2, y + h / 2
+    x1 = x0 + width
+    v = [(x0, y0), (x1 - r, y0), (x1, y0), (x1, y0 + r), (x1, y1 - r), (x1, y1),
+         (x1 - r, y1), (x0, y1), (x0, y0)]
+    c = [MPath.MOVETO, MPath.LINETO, MPath.CURVE3, MPath.CURVE3,
+         MPath.LINETO, MPath.CURVE3, MPath.CURVE3, MPath.LINETO, MPath.CLOSEPOLY]
+    ax.add_patch(PathPatch(MPath(v, c), facecolor=color, edgecolor=SURFACE,
+                           linewidth=1.6, zorder=3))
+
+
+def vbar(ax, x, height, color, w=0.62, r_frac=0.5, y0=0.0):
+    """데이터 끝(위)만 둥근 세로 막대."""
+    if height <= 0:
+        return
+    ylim = ax.get_ylim(); span = (ylim[1] - ylim[0]) or 1
+    r = min(w * r_frac / 2 * (span / max(ax.get_xlim()[1] - ax.get_xlim()[0], 1e-9)) * 0,
+            0)  # 좌표계 비율 왜곡을 피하려 반지름은 데이터 단위로 직접 계산
+    r = min(span * 0.012, height)
+    x0, x1 = x - w / 2, x + w / 2
+    y1 = y0 + height
+    v = [(x0, y0), (x0, y1 - r), (x0, y1), (x0 + r, y1), (x1 - r, y1), (x1, y1),
+         (x1, y1 - r), (x1, y0), (x0, y0)]
+    c = [MPath.MOVETO, MPath.LINETO, MPath.CURVE3, MPath.CURVE3,
+         MPath.LINETO, MPath.CURVE3, MPath.CURVE3, MPath.LINETO, MPath.CLOSEPOLY]
+    ax.add_patch(PathPatch(MPath(v, c), facecolor=color, edgecolor=SURFACE,
+                           linewidth=1.6, zorder=3))
+
+
+def colorbar(fig, im, ax, label, shrink=.84):
+    """라벨을 세로로 눕히지 않고 컬러바 위에 가로로 얹는다."""
+    cb = fig.colorbar(im, ax=ax, shrink=shrink, pad=.022)
+    cb.outline.set_visible(False)
+    cb.ax.tick_params(labelsize=T_TICK, colors=INK_2, length=0)
+    cb.ax.set_title(label, fontsize=T_NOTE, color=INK_MUTE, pad=8, loc="left")
+    return cb
+
+
+def spread(ys, min_gap):
+    """가까이 몰린 라벨 y좌표를 최소 간격만큼 벌린다(순서 보존)."""
+    idx = sorted(range(len(ys)), key=lambda i: ys[i])
+    out = list(ys)
+    for k in range(1, len(idx)):
+        a, b = idx[k - 1], idx[k]
+        if out[b] - out[a] < min_gap:
+            out[b] = out[a] + min_gap
+    return out
 
 
 def stamp(fig):
     if BADGE["on"]:
-        fig.text(.995, .005, BADGE["txt"], ha="right", va="bottom",
-                 fontsize=8, color="#B04A4A", alpha=.9)
+        # 하단은 축 라벨·주석이 차지하므로 상단 우측에 둔다
+        fig.text(.999, 1.004, BADGE["txt"], ha="right", va="bottom",
+                 fontsize=8.5, color=ST_WARN, alpha=.95)
 
 
 def save(fig, name):
@@ -38,65 +147,60 @@ def save(fig, name):
     print(f"    · {name}")
 
 
-def _leg(types):
-    return [Patch(facecolor=TYPE_COLOR[t], label=t) for t in TYPE_ORDER if t in types]
-
-
 # ── 1. CBI 랭킹 ──────────────────────────────────────────────
 def fig_cbi_rank(cbi):
     d = cbi.sort_values("CBI")
-    fig, ax = plt.subplots(figsize=(9.4, 8.2))
-    cols = [TYPE_COLOR[t] for t in d["ztype"]]
-    ax.barh(d.index, d["CBI"], color=cols, height=.74,
-            edgecolor="white", linewidth=.8)
-    for y, (v, st) in enumerate(zip(d["CBI"], d["stage"])):
-        ax.text(v + 1.2, y, f"{v:.0f}", va="center", fontsize=9.5, color=INK)
+    fig, ax = plt.subplots(figsize=(9.6, 8.6))
+    for i, (z, r) in enumerate(d.iterrows()):
+        hbar(ax, i, r["CBI"], TYPE_COLOR[r["ztype"]])
+        ax.text(r["CBI"] + 1.6, i, f"{r['CBI']:.0f}", va="center",
+                fontsize=T_LABEL, color=INK_2)
+    ax.set_yticks(range(len(d)), d.index)
+    ax.set_ylim(-0.9, len(d) - 0.1)
     mean = cbi["CBI"].mean()
-    ax.axvline(mean, color=MUTE, ls="--", lw=1.2)
-    ax.text(mean + .8, -1.1, f"시 평균 {mean:.0f}", color=MUTE, fontsize=9.5)
-    ax.set_xlim(0, 108); ax.set_xlabel("CBI 균형발전지수 (0~100)")
+    ax.axvline(mean, color=AXIS, ls=(0, (4, 3)), lw=1.1, zorder=1)
+    ax.text(mean, -0.85, f" 시 평균 {mean:.0f}", color=INK_MUTE, fontsize=T_NOTE, va="center")
+    ax.set_xlim(0, 106); ax.set_xlabel("CBI 균형발전지수 (0~100)")
+    ax.grid(axis="y", visible=False); _spines(ax)
 
-    # 부제는 데이터에서 직접 만든다 (수치가 바뀌어도 제목이 사실과 어긋나지 않도록)
-    top = cbi.nlargest(3, "CBI"); bot = cbi.nsmallest(6, "CBI")
-    def only(sub):
-        t = sub["ztype"].unique()
-        return t[0] if len(t) == 1 else None
-    tt, bt = only(top), only(bot)
-    parts = []
-    if tt: parts.append(f"상위 3곳은 모두 {tt}")
-    if bt: parts.append(f"하위 6곳은 모두 {bt}")
-    gap = cbi.groupby("ztype")["CBI"].mean()
-    if {"신도심", "원도심"} <= set(gap.index):
-        parts.append(f"권역 평균 신도심 {gap['신도심']:.0f} ↔ 원도심 {gap['원도심']:.0f}")
-    sub = " · ".join(parts) if parts else f"{len(cbi)}개 생활권 비교"
-    ax.set_title(f"천안시 {len(cbi)}개 생활권 균형발전지수(CBI)\n— {sub}",
-                 loc="left", pad=14)
-    ax.legend(handles=_leg(set(d["ztype"])), loc="lower right", frameon=False, ncol=1)
-    ax.grid(axis="y", visible=False)
+    top, bot = cbi.nlargest(3, "CBI"), cbi.nsmallest(6, "CBI")
+    one = lambda s: (s["ztype"].unique()[0] if s["ztype"].nunique() == 1 else None)
+    tt, bt = one(top), one(bot)
+    g = cbi.groupby("ztype")["CBI"].mean()
+    bits = []
+    if tt: bits.append(f"상위 3곳은 모두 {tt}")
+    if bt: bits.append(f"하위 6곳은 모두 {bt}")
+    if {"신도심", "원도심"} <= set(g.index):
+        bits.append(f"권역 평균 신도심 {g['신도심']:.0f} ↔ 원도심 {g['원도심']:.0f}")
+    title(ax, f"천안시 {len(cbi)}개 생활권 균형발전지수",
+          " · ".join(bits) if bits else f"{len(cbi)}개 생활권 비교")
+    legend(ax, set(d["ztype"]), loc="lower right", bbox_to_anchor=(1.0, 0.02))
     save(fig, "01_CBI_랭킹.png")
 
 
-# ── 2. 권역유형 × 도메인 히트맵 ────────────────────────────────
+# ── 2. 권역유형 × 도메인 ─────────────────────────────────────
 def fig_domain_heat(cbi):
     m = cbi.groupby("ztype")[[f"D_{d}" for d in DOMAINS]].mean()
-    m = m.reindex([t for t in TYPE_ORDER if t in m.index])
-    m.columns = DOMAINS
-    fig, ax = plt.subplots(figsize=(8.2, 4.3))
-    im = ax.imshow(m.values, cmap="RdYlBu", aspect="auto", vmin=0, vmax=100)
+    m = m.reindex([t for t in TYPE_ORDER if t in m.index]); m.columns = DOMAINS
+    fig, ax = plt.subplots(figsize=(8.8, 4.6))
+    im = ax.imshow(m.values, cmap=SEQ_CMAP, aspect="auto", vmin=0, vmax=100)
     ax.set_xticks(range(len(DOMAINS)), DOMAINS)
     ax.set_yticks(range(len(m)), m.index)
     for i in range(m.shape[0]):
         for j in range(m.shape[1]):
             v = m.values[i, j]
-            ax.text(j, i, f"{v:.0f}", ha="center", va="center", fontsize=12,
-                    color="white" if (v < 32 or v > 78) else INK, fontweight="bold")
-    ax.set_title("권역유형별 5대 도메인 점수 — 같은 '어려움'이라도 사정이 다릅니다", loc="left", pad=12)
-    fig.colorbar(im, ax=ax, shrink=.85, label="도메인 점수")
-    ax.grid(False)
-    fig.text(.01, -.07,
-             "원도심: 생활SOC는 갖췄으나 경제활력·인구활력이 붕괴  ↔  농촌면: 생활SOC 자체가 부재\n"
-             "→ 같은 '낙후'라도 처방이 정반대여야 함을 데이터가 보여준다.",
-             fontsize=10, color=MUTE)
+            ax.text(j, i, f"{v:.0f}", ha="center", va="center", fontsize=13,
+                    color="white" if v > 52 else INK, fontweight="bold")
+    for s in ax.spines.values():
+        s.set_visible(False)
+    ax.set_xticks(np.arange(-.5, m.shape[1], 1), minor=True)
+    ax.set_yticks(np.arange(-.5, m.shape[0], 1), minor=True)
+    ax.grid(which="minor", color=SURFACE, linewidth=2.4)
+    ax.tick_params(which="minor", length=0); ax.grid(which="major", visible=False)
+    colorbar(fig, im, ax, "도메인 점수", shrink=.86)
+    title(ax, "권역유형별 5대 도메인 점수", "같은 '어려움'이라도 사정이 서로 다릅니다")
+    note(fig, "원도심은 시설을 갖췄으나 상권·인구가 어렵고, 농촌면은 가까운 시설 자체가 부족합니다.\n"
+              "→ 같은 '어려움'이라도 필요한 도움이 서로 다를 수 있습니다.")
     save(fig, "02_도메인_히트맵.png")
 
 
@@ -104,163 +208,237 @@ def fig_domain_heat(cbi):
 def fig_gap_trend(panels, cbi):
     pop, biz = panels["pop"], panels["biz"]
     t = cbi["ztype"]
-    p = pop.assign(ztype=pop.zone.map(t)); b = biz.assign(ztype=biz.zone.map(t))
-    fig, axes = plt.subplots(1, 2, figsize=(12.4, 4.6))
-    for ax, (d, col, ttl, ylab) in zip(axes, [
-            (p, "pop", "인구 추이 (2018=100)", "지수"),
-            (b, "active", "영업 중 사업체 추이 (2018=100)", "지수")]):
+    fig, axes = plt.subplots(1, 2, figsize=(12.8, 5.0))
+    for ax, (d, col, ttl) in zip(axes, [
+            (pop.assign(ztype=pop.zone.map(t)), "pop", "인구"),
+            (biz.assign(ztype=biz.zone.map(t)), "active", "영업 중 사업체")]):
+        ends = []
         for ty in TYPE_ORDER:
-            s = d[d.ztype == ty].groupby("year")[col].sum()
-            if len(s) < 2:
+            sr = d[d.ztype == ty].groupby("year")[col].sum()
+            if len(sr) < 2:
                 continue
-            base = s.loc[s.index.min()]
-            ax.plot(s.index, s / base * 100, marker="o", ms=4.2, lw=2.3,
-                    color=TYPE_COLOR[ty], label=ty)
-        ax.axhline(100, color=MUTE, ls=":", lw=1)
-        ax.set_title(ttl, loc="left"); ax.set_ylabel(ylab); ax.set_xlabel("연도")
-    axes[0].legend(frameon=False, ncol=2, fontsize=9.5)
-    fig.suptitle("권역유형별 궤적 — 시간이 갈수록 서로 다른 방향으로 갈라집니다",
-                 x=.012, ha="left", fontsize=15, fontweight="bold", y=1.03)
+            v = sr / sr.loc[sr.index.min()] * 100
+            ax.plot(v.index, v.values, lw=2.0, color=TYPE_COLOR[ty], zorder=3,
+                    solid_capstyle="round")
+            ax.scatter([v.index[-1]], [v.values[-1]], s=42, color=TYPE_COLOR[ty],
+                       edgecolor=SURFACE, linewidth=2, zorder=4)
+            ends.append((v.index[-1], float(v.values[-1]), ty))
+        if ends:
+            lo = min(e[1] for e in ends); hi = max(e[1] for e in ends)
+            gap = max((hi - lo) * .075, 1.6)
+            ys = spread([e[1] for e in ends], gap)
+            for (xe, ye, ty), yl in zip(ends, ys):
+                ax.annotate(f"{ty} {ye:.0f}", (xe, ye), xytext=(xe + (hi - lo) * .004 + .35, yl),
+                            va="center", fontsize=T_NOTE, color=INK_2,
+                            arrowprops=dict(arrowstyle="-", color=AXIS, lw=.8,
+                                            shrinkA=2, shrinkB=3)
+                            if abs(yl - ye) > gap * .3 else None)
+        ax.axhline(100, color=AXIS, ls=(0, (4, 3)), lw=1)
+        base = int(d.year.min())
+        ax.set_title(f"{ttl} 추이 ({base}=100)", loc="left", fontsize=12.5, pad=10)
+        ax.set_ylabel("지수"); ax.set_xlabel("연도")
+        ax.margins(x=.22); _spines(ax, keep=("bottom",))
+    fig.text(.007, 1.055, "권역유형별 궤적", fontsize=T_TITLE, fontweight="bold",
+             color=INK, va="bottom", ha="left")
+    fig.text(.007, 1.005, "시간이 갈수록 서로 다른 방향으로 갈라집니다",
+             fontsize=T_SUB, color=INK_MUTE, va="bottom", ha="left")
+    fig.subplots_adjust(wspace=.30)
     save(fig, "03_격차추이.png")
 
 
 # ── 4. 조기경보 ─────────────────────────────────────────────
 def fig_earlywarn(res, cbi):
     d = res.merge(cbi.reset_index()[["zone", "ztype"]], on="zone")
-    fig, ax = plt.subplots(figsize=(8.6, 6.6))
+    fig, ax = plt.subplots(figsize=(8.8, 7.0))
+    lim = (-4, 106)
+    ax.fill_between(lim, lim, 106, color=ST_CRITICAL, alpha=.045, zorder=0)
+    ax.plot(lim, lim, color=AXIS, ls=(0, (4, 3)), lw=1.1, zorder=1)
     for ty in TYPE_ORDER:
         s = d[d.ztype == ty]
-        ax.scatter(s["risk"], s["risk_pred"], s=105, color=TYPE_COLOR[ty],
-                   label=ty, edgecolor="white", linewidth=1.3, zorder=3)
-    lim = (-4, 106)
-    ax.plot(lim, lim, color=MUTE, ls="--", lw=1.2, zorder=1)
-    ax.fill_between(lim, lim, 106, color=ACCENT, alpha=.06, zorder=0)
-    ax.text(6, 96, "위험 상승 구간\n(3년 내 악화 예상)", color=ACCENT, fontsize=10.5,
-            fontweight="bold", va="top")
-    # 상승폭 상위 라벨 — 가까운 점끼리 겹치지 않도록 세로로 분산 배치
+        if not len(s):
+            continue
+        ax.scatter(s["risk"], s["risk_pred"], s=118, color=TYPE_COLOR[ty],
+                   edgecolor=SURFACE, linewidth=2, zorder=3)
+    ax.text(4, 101, "위쪽 — 지금보다 나빠질 것으로 본 구간", color=ST_CRITICAL,
+            fontsize=T_LABEL, fontweight="bold", va="top")
     rise = d.nlargest(5, "risk_delta").sort_values("risk_pred")
     placed = []
     for r in rise.itertuples():
-        dy = 8
-        while any(abs(r.risk - px) < 14 and abs(r.risk_pred + dy / 8 * 1.6 - py) < 5.5
+        dy = 10
+        while any(abs(r.risk - px) < 15 and abs(r.risk_pred + dy * .2 - py) < 6
                   for px, py in placed):
-            dy += 13
+            dy += 14
         ax.annotate(f"{r.zone} +{r.risk_delta:.0f}", (r.risk, r.risk_pred),
-                    textcoords="offset points", xytext=(10, dy), fontsize=10,
-                    fontweight="bold", color=ACCENT,
-                    arrowprops=dict(arrowstyle="-", color=ACCENT, lw=.7,
-                                    shrinkA=0, shrinkB=3, alpha=.55))
-        placed.append((r.risk, r.risk_pred + dy / 8 * 1.6))
+                    textcoords="offset points", xytext=(11, dy), fontsize=T_LABEL,
+                    fontweight="bold", color=INK,
+                    arrowprops=dict(arrowstyle="-", color=AXIS, lw=.9,
+                                    shrinkA=0, shrinkB=5))
+        placed.append((r.risk, r.risk_pred + dy * .2))
     ax.set_xlim(*lim); ax.set_ylim(*lim)
-    ax.set_xlabel("현재 쇠퇴위험도 (백분위)"); ax.set_ylabel("3년 후 예측 쇠퇴위험도 (백분위)")
-    ax.set_title("미리 살펴보기 — 지금보다 나빠질 수 있는 곳", loc="left", pad=12)
-    ax.legend(frameon=False, loc="lower right", fontsize=9.5)
+    ax.set_xlabel("현재 쇠퇴위험도 (백분위)"); ax.set_ylabel("3년 후 예측 위험도 (백분위)")
+    title(ax, "미리 살펴보기 — 지금보다 나빠질 수 있는 곳",
+          "대각선 위쪽에 있을수록 앞으로 살펴볼 필요가 큽니다")
+    legend(ax, set(d["ztype"]), loc="lower right")
+    _spines(ax)
     save(fig, "04_조기경보.png")
 
 
 # ── 5. SHAP ─────────────────────────────────────────────────
 def fig_shap(glob, L, res):
-    fig, axes = plt.subplots(1, 2, figsize=(13.2, 5.6),
-                             gridspec_kw={"width_ratios": [1, 1.35]})
-    g = glob.head(10).sort_values()
-    names = [INDICATORS.get(i, (None, i))[1] if i in INDICATORS else i for i in g.index]
-    axes[0].barh(names, g.values, color="#2E7DD1", height=.7)
-    axes[0].set_title("어떤 항목이 변화를 설명하는가\n(SHAP 전역 중요도)", loc="left", fontsize=13)
+    fig, axes = plt.subplots(1, 2, figsize=(13.4, 5.8),
+                             gridspec_kw={"width_ratios": [1, 1.32], "wspace": .34})
+    nm = lambda i: INDICATORS[i][1] if i in INDICATORS else _FEAT_KO.get(i, i)
+    g = glob.head(9).sort_values()
+    for i, (k, v) in enumerate(g.items()):
+        hbar(axes[0], i, v, TYPE_COLOR["원도심"], h=.58)
+        axes[0].text(v * 1.03, i, f"{v:.1f}", va="center", fontsize=T_NOTE, color=INK_2)
+    axes[0].set_yticks(range(len(g)), [nm(i) for i in g.index])
+    axes[0].set_xlim(0, g.max() * 1.16); axes[0].set_ylim(-.7, len(g) - .3)
     axes[0].set_xlabel("평균 |SHAP|"); axes[0].grid(axis="y", visible=False)
+    _spines(axes[0])
+    axes[0].set_title("어떤 항목이 변화를 설명하는가", loc="left", fontsize=12.5, pad=10)
 
     top = res.nlargest(8, "risk_pred")["zone"].tolist()
     cols = glob.head(8).index.tolist()
     M = L.loc[[z for z in top if z in L.index], cols]
-    M.columns = [INDICATORS.get(c, (None, c))[1] if c in INDICATORS else c for c in cols]
-    v = np.abs(M.values).max()
-    im = axes[1].imshow(M.values, cmap="RdBu_r", aspect="auto", vmin=-v, vmax=v)
-    axes[1].set_xticks(range(M.shape[1]), M.columns, rotation=34, ha="right", fontsize=9.5)
-    axes[1].set_yticks(range(M.shape[0]), M.index, fontsize=10.5)
-    axes[1].set_title("위험 상위 생활권의 요인 분해\n(붉을수록 위험을 끌어올린 항목)",
-                      loc="left", fontsize=13)
-    axes[1].grid(False)
-    fig.colorbar(im, ax=axes[1], shrink=.8, label="SHAP 기여도")
-    fig.text(.01, -.04, "→ 같은 '고위험'이라도 원인이 달라, 동네마다 필요한 도움이 다를 수 있습니다.",
-             fontsize=10.5, color=MUTE)
+    M.columns = [nm(c) for c in cols]
+    v = np.abs(M.values).max() or 1
+    im = axes[1].imshow(M.values, cmap=DIV_CMAP, aspect="auto", vmin=-v, vmax=v)
+    axes[1].set_xticks(range(M.shape[1]), M.columns, rotation=32, ha="right", fontsize=T_NOTE)
+    axes[1].set_yticks(range(M.shape[0]), M.index, fontsize=T_TICK)
+    axes[1].set_xticks(np.arange(-.5, M.shape[1], 1), minor=True)
+    axes[1].set_yticks(np.arange(-.5, M.shape[0], 1), minor=True)
+    axes[1].grid(which="minor", color=SURFACE, linewidth=2.2)
+    axes[1].tick_params(which="minor", length=0); axes[1].grid(which="major", visible=False)
+    for s in axes[1].spines.values():
+        s.set_visible(False)
+    colorbar(fig, im, axes[1], "SHAP 기여도", shrink=.82)
+    axes[1].set_title("위험 상위 생활권의 요인 분해  (붉을수록 위험을 끌어올린 항목)",
+                      loc="left", fontsize=12.5, pad=10)
+    note(fig, "→ 같은 '고위험'이라도 원인이 달라, 동네마다 필요한 도움이 다를 수 있습니다.")
     save(fig, "05_SHAP_요인분해.png")
 
 
-# ── 6. 생활SOC 사각지대 ───────────────────────────────────────
+_FEAT_KO = {"pop": "인구 규모", "pop_yoy": "전년 대비 인구증감",
+            "pop_3y": "3년 인구증감률", "risk": "현재 위험도",
+            "aging_ratio_y": "고령 비율", "youth_ratio_y": "청년 비율",
+            "aging_trend": "고령화 진행 속도", "pop_density": "인구 밀도",
+            "active": "사업체 수", "closure_rate": "폐업률",
+            "biz_per_1k": "인구천명당 사업체", "net_entry": "상권 순증감",
+            "open_rate": "개업률", "biz_yoy": "전년 대비 사업체",
+            "biz_3y": "3년 사업체 증감", "soc_access": "생활SOC 접근성",
+            "soc_per_capita": "인구당 생활SOC", "vacancy_rate": "빈집률",
+            "old_building": "노후 건물 비율", "transit_density": "정류장 밀도"}
+
+
+# ── 6. 생활SOC 사각지대 ──────────────────────────────────────
 def fig_soc_gap(cbi):
-    fig, ax = plt.subplots(figsize=(9.2, 6.4))
+    fig, ax = plt.subplots(figsize=(9.6, 6.8))
+    xm, ym = cbi["soc_access"].median(), cbi["aging_ratio"].median()
+    ax.axvspan(-3, xm, ymin=0, ymax=1, color=ST_CRITICAL, alpha=.035, zorder=0)
+    ax.axvline(xm, color=AXIS, ls=(0, (4, 3)), lw=1)
+    ax.axhline(ym, color=AXIS, ls=(0, (4, 3)), lw=1)
     for ty in TYPE_ORDER:
         s = cbi[cbi.ztype == ty]
-        ax.scatter(s["soc_access"], s["aging_ratio"], s=np.sqrt(s["pop"]) * 2.4,
-                   color=TYPE_COLOR[ty], alpha=.85, edgecolor="white",
-                   linewidth=1.3, label=ty, zorder=3)
-    xm, ym = cbi["soc_access"].median(), cbi["aging_ratio"].median()
-    ax.axvline(xm, color=MUTE, ls="--", lw=1); ax.axhline(ym, color=MUTE, ls="--", lw=1)
+        if not len(s):
+            continue
+        ax.scatter(s["soc_access"], s["aging_ratio"], s=np.sqrt(s["pop"]) * 2.6,
+                   color=TYPE_COLOR[ty], alpha=.9, edgecolor=SURFACE,
+                   linewidth=2, zorder=3)
     risk = cbi[(cbi.soc_access < xm) & (cbi.aging_ratio > ym)]
-    ax.fill_betweenx([ym, cbi.aging_ratio.max() * 1.06], -3, xm,
-                     color=ACCENT, alpha=.07, zorder=0)
     for r in risk.itertuples():
-        ax.annotate(r.Index, (r.soc_access, r.aging_ratio), fontsize=9.8,
-                    textcoords="offset points", xytext=(8, 5), color=ACCENT,
+        ax.annotate(r.Index, (r.soc_access, r.aging_ratio), fontsize=T_NOTE,
+                    textcoords="offset points", xytext=(9, 6), color=INK,
                     fontweight="bold")
-    ax.text(2, cbi.aging_ratio.max() * 1.02,
-            f"⚠ 먼저 살펴보면 좋을 곳 — 고령↑ · 생활SOC↓  ({len(risk)}개 생활권)",
-            color=ACCENT, fontsize=11, fontweight="bold", va="top")
+    ax.text(1, cbi.aging_ratio.max() * 1.045,
+            f"먼저 살펴보면 좋을 곳 — 고령 비율 높고 생활SOC 접근성 낮음 ({len(risk)}곳)",
+            color=ST_CRITICAL, fontsize=T_LABEL, fontweight="bold", va="top")
     ax.set_xlabel("생활SOC 접근성 점수 (중력모형, 0~100)")
     ax.set_ylabel("고령(65세+) 인구 비율 (%)")
-    ax.set_title("생활SOC 사각지대 — 원의 크기는 인구 규모", loc="left", pad=12)
-    ax.legend(frameon=False, loc="upper right", fontsize=9.5)
     ax.set_xlim(-3, 106)
+    title(ax, "생활SOC 사각지대", "원의 크기는 인구 규모")
+    legend(ax, set(cbi["ztype"]), loc="upper right")
+    _spines(ax)
     save(fig, "06_SOC_사각지대.png")
 
 
-# ── 7. 투자 우선순위 지도 ─────────────────────────────────────
+# ── 7. 투자 우선순위 지도 ────────────────────────────────────
 def fig_site_map(R, points, cbi):
-    fig, ax = plt.subplots(figsize=(8.8, 8.4))
-    ax.scatter(points.lon, points.lat, s=5, color="#C7D2DE", alpha=.55,
-               label="기존 생활SOC", zorder=1)
+    fig, ax = plt.subplots(figsize=(9.2, 8.8))
+    ax.scatter(points.lon, points.lat, s=5, color=GRID, zorder=1, label="기존 생활SOC")
     for z, (la, lo) in I.CENTROID.items():
-        ax.scatter(lo, la, s=np.sqrt(cbi.loc[z, "pop"]) * 1.5,
-                   color=TYPE_COLOR[cbi.loc[z, "ztype"]], alpha=.35,
-                   edgecolor="white", linewidth=.8, zorder=2)
-        ax.annotate(z, (lo, la), fontsize=8.2, color=MUTE, ha="center",
-                    textcoords="offset points", xytext=(0, -12))
+        if z not in cbi.index:
+            continue
+        ax.scatter(lo, la, s=np.sqrt(cbi.loc[z, "pop"]) * 1.7,
+                   color=TYPE_COLOR[cbi.loc[z, "ztype"]], alpha=.30,
+                   edgecolor=SURFACE, linewidth=1.4, zorder=2)
+        ax.annotate(z, (lo, la), fontsize=8.6, color=INK_2, ha="center",
+                    textcoords="offset points", xytext=(0, -13))
     if len(R):
-        ax.scatter(R.경도, R.위도, s=190, marker="*", color=ACCENT,
-                   edgecolor="white", linewidth=1.2, zorder=4, label="AI 추천 신규 입지")
+        ax.scatter(R.경도, R.위도, s=250, marker="*", color=ST_CRITICAL,
+                   edgecolor=SURFACE, linewidth=1.5, zorder=4, label="우선순위 제안 입지")
         for r in R.itertuples():
-            ax.annotate(f"{r.순위}", (r.경도, r.위도), fontsize=9,
-                        fontweight="bold", color="white", ha="center", va="center", zorder=5)
+            ax.annotate(f"{r.순위}", (r.경도, r.위도), fontsize=8.6,
+                        fontweight="bold", color="white", ha="center",
+                        va="center", zorder=5)
     ax.set_xlabel("경도"); ax.set_ylabel("위도")
-    ax.set_title("생활SOC 우선순위 입지 제안 — MCLP 탐욕 최적화 결과", loc="left", pad=12)
-    ax.legend(frameon=False, loc="upper left", fontsize=10)
+    title(ax, "생활SOC 우선순위 입지 제안", "MCLP 탐욕 최적화 · 생활권당 최대 2개소")
+    lg = ax.legend(loc="upper left", handlelength=1.1)
+    for t in lg.get_texts():
+        t.set_color(INK_2)
     ax.set_aspect(1 / np.cos(np.radians(36.8)))
+    _spines(ax)
     save(fig, "07_투자입지_지도.png")
 
 
-# ── 8. 커버리지 개선 곡선 ────────────────────────────────────
+# ── 8. 커버리지 곡선 ─────────────────────────────────────────
 def fig_coverage(R):
+    """
+    이중 축(두 개의 y 스케일)은 쓰지 않는다. 두 계열 모두 단위가 %p 로 같지만
+    크기 차이가 커서 한 축에 겹치면 막대가 읽히지 않으므로,
+    x축을 공유하는 위·아래 두 패널(소형 다중)로 나눈다.
+    """
     if not len(R):
         return
-    fig, ax = plt.subplots(figsize=(9.2, 4.8))
-    x = R["순위"]
-    ax.bar(x, R["커버리지개선률"], color="#4FA88B", width=.62, label="개소별 커버리지 개선")
-    ax2 = ax.twinx()
-    ax2.plot(x, R["누적커버리지개선률"], color=ACCENT, marker="o", ms=5.5, lw=2.4,
-             label="누적 개선")
-    ax2.grid(False)
-    for i, (xi, yi) in enumerate(zip(x, R["누적커버리지개선률"])):
-        if i in (0, len(x) // 2, len(x) - 1):
-            ax2.annotate(f"+{yi:.1f}%p", (xi, yi), textcoords="offset points",
-                         xytext=(0, 10), fontsize=10, color=ACCENT,
-                         fontweight="bold", ha="center")
-    ax.set_xlabel("투자 순위 (예산 투입 순서)")
-    ax.set_ylabel("개소별 개선(%p)"); ax2.set_ylabel("누적 개선(%p)")
-    ax.set_xticks(x)
-    ax.set_title("한 곳씩 더할 때의 효과 — 한계효용 체감 곡선", loc="left", pad=12)
-    h1, l1 = ax.get_legend_handles_labels(); h2, l2 = ax2.get_legend_handles_labels()
-    ax.legend(h1 + h2, l1 + l2, frameon=False, loc="center right", fontsize=10)
-    tot = R["신규수혜인구"].sum()
-    fig.text(.01, -.06, f"상위 {len(R)}개소만 먼저 놓아도 취약수요 커버리지 "
-                        f"+{R['커버리지개선률'].sum():.1f}%p, 신규 수혜인구 약 {tot:,}명.",
-             fontsize=10.5, color=MUTE)
+    x = R["순위"].values
+    cum = R["누적커버리지개선률"].values
+    each = R["커버리지개선률"].values
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(9.8, 6.6), sharex=True,
+                                   gridspec_kw={"height_ratios": [1.35, 1], "hspace": .16})
+
+    # 위: 누적 개선
+    ax1.set_ylim(0, cum.max() * 1.22)
+    ax1.plot(x, cum, color=TYPE_COLOR["원도심"], lw=2.0, zorder=3, solid_capstyle="round")
+    ax1.fill_between(x, cum, color=TYPE_COLOR["원도심"], alpha=.07, zorder=2)
+    ax1.scatter(x, cum, s=46, color=TYPE_COLOR["원도심"], edgecolor=SURFACE,
+                linewidth=2, zorder=4)
+    for i in (0, len(x) // 2, len(x) - 1):
+        ax1.annotate(f"+{cum[i]:.1f}%p", (x[i], cum[i]), textcoords="offset points",
+                     xytext=(0, 14), fontsize=T_LABEL, color=INK,
+                     fontweight="bold", ha="center")
+    ax1.set_ylabel("누적 개선 (%p)")
+    ax1.set_title("누적 — 여기까지 하면 이만큼", loc="left", fontsize=12, pad=8, color=INK_2)
+    ax1.grid(axis="x", visible=False); _spines(ax1)
+
+    # 아래: 개소별 개선
+    ax2.set_ylim(0, each.max() * 1.30)
+    for xi, yi in zip(x, each):
+        vbar(ax2, xi, yi, TYPE_COLOR["신도심"], w=.62)
+    for xi, yi in zip(x, each):
+        ax2.text(xi, yi + each.max() * .07, f"{yi:.2f}", ha="center",
+                 fontsize=T_NOTE - .5, color=INK_2)
+    ax2.set_ylabel("개소별 개선 (%p)")
+    ax2.set_title("개소별 — 한 곳을 더할 때마다 효과는 줄어듭니다",
+                  loc="left", fontsize=12, pad=8, color=INK_2)
+    ax2.set_xticks(x); ax2.set_xlim(x.min() - .8, x.max() + .8)
+    ax2.set_xlabel("투자 순위 (예산 투입 순서)")
+    ax2.grid(axis="x", visible=False); _spines(ax2, keep=("bottom",))
+
+    fig.text(.007, 1.082, "한 곳씩 더할 때의 효과", fontsize=T_TITLE,
+             fontweight="bold", color=INK, va="bottom", ha="left")
+    fig.text(.007, 1.022, "한계효용 체감 곡선 — 어디서 멈춰도 근거가 남습니다",
+             fontsize=T_SUB, color=INK_MUTE, va="bottom", ha="left")
+    note(fig, f"상위 {len(R)}개소만 먼저 놓아도 취약수요 커버리지 "
+              f"+{cum[-1]:.1f}%p, 새로 닿는 인구 약 {R['신규수혜인구'].sum():,}명.")
     save(fig, "08_커버리지_곡선.png")

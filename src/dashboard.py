@@ -98,34 +98,37 @@ header{{margin-bottom:30px}}
 h1{{font-size:clamp(27px,4.4vw,40px);line-height:1.2;margin:8px 0 6px;letter-spacing:-.02em}}
 .sub{{color:var(--mute);font-size:17px;margin-bottom:14px}}
 .bdg{{display:inline-block;padding:5px 13px;border-radius:999px;font-size:12.5px;font-weight:700}}
-.bdg.ok{{background:rgba(62,155,124,.14);color:var(--green)}}
-.bdg.warn{{background:rgba(201,138,30,.15);color:var(--amber)}}
-.alert{{background:rgba(201,138,30,.1);border-left:3px solid var(--amber);
+.bdg.ok{{background:rgba(27,175,122,.14);color:var(--green)}}
+.bdg.warn{{background:rgba(250,178,25,.16);color:var(--warn)}}
+.alert{{background:rgba(250,178,25,.10);border-left:3px solid var(--warn);
  padding:14px 18px;border-radius:8px;margin:20px 0;font-size:14px;line-height:1.7}}
 .alert code{{background:rgba(125,135,150,.16);padding:1px 6px;border-radius:4px;font-size:12.5px}}
 .kpis{{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:14px;margin:26px 0 8px}}
 .kpi{{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:18px 20px;
  box-shadow:var(--shadow);display:flex;flex-direction:column;gap:3px}}
 .kpi .lab{{font-size:12.5px;color:var(--mute);font-weight:600}}
-.kpi .val{{font-size:29px;font-weight:800;letter-spacing:-.02em;line-height:1.15}}
+.kpi .val{{font-size:29px;font-weight:800;letter-spacing:-.02em;line-height:1.15;
+ font-variant-numeric:tabular-nums}}
 .kpi .sub{{font-size:12.5px;color:var(--mute)}}
 section{{background:var(--card);border:1px solid var(--line);border-radius:15px;
  padding:28px 30px;margin:22px 0;box-shadow:var(--shadow)}}
 h2{{font-size:21px;margin:0 0 6px;letter-spacing:-.015em}}
-h2 .n{{color:var(--accent);font-weight:800;margin-right:9px}}
+h2 .n{{color:var(--accent);font-weight:800;margin-right:9px;font-variant-numeric:tabular-nums}}
 .lede{{color:var(--mute);font-size:14.5px;margin:0 0 20px}}
 h3{{font-size:15.5px;margin:26px 0 10px;color:var(--ink)}}
-figure{{margin:18px 0 6px}} figure img{{width:100%;border-radius:10px;border:1px solid var(--line)}}
+figure{{margin:18px 0 6px}} figure img{{width:100%;border-radius:10px;border:1px solid var(--line);
+ background:#fff}}
 figcaption{{color:var(--mute);font-size:12.8px;margin-top:9px;text-align:center}}
 .tw{{overflow-x:auto;margin:14px 0}}
 table{{border-collapse:collapse;width:100%;font-size:13.4px;min-width:440px}}
 th{{background:rgba(125,135,150,.09);text-align:left;padding:9px 12px;
  font-weight:700;border-bottom:2px solid var(--line);white-space:nowrap}}
-td{{padding:8px 12px;border-bottom:1px solid var(--line);white-space:nowrap}}
+td{{padding:8px 12px;border-bottom:1px solid var(--line);white-space:nowrap;
+ font-variant-numeric:tabular-nums}}
 tbody tr:hover{{background:rgba(125,135,150,.055)}}
 .two{{display:grid;grid-template-columns:1fr 1fr;gap:26px}}
 @media(max-width:760px){{.two{{grid-template-columns:1fr}}}}
-.note{{background:rgba(46,125,209,.08);border-left:3px solid var(--blue);
+.note{{background:rgba(42,120,214,.075);border-left:3px solid var(--blue);
  padding:13px 17px;border-radius:8px;font-size:13.6px;line-height:1.7;margin:16px 0}}
 footer{{color:var(--mute);font-size:12.6px;margin-top:38px;padding-top:22px;border-top:1px solid var(--line)}}
 </style>

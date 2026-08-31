@@ -9,14 +9,42 @@ from pptx.util import Inches as In, Pt, Emu
 from pptx.dml.color import RGBColor as C
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.enum.shapes import MSO_SHAPE
+from pptx.oxml.ns import qn
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import config as cfg
 from config import TAB, FIG, DELIV
 
-FONT = "맑은 고딕"
-INK, MUTE, ACC = C(0x15, 0x1C, 0x26), C(0x5D, 0x68, 0x74), C(0xD6, 0x45, 0x45)
-BLUE, GREEN, AMBER = C(0x2E, 0x7D, 0xD1), C(0x3E, 0x9B, 0x7C), C(0xC9, 0x8A, 0x1E)
-LIGHT, LINE, WHITE = C(0xF5, 0xF7, 0xFA), C(0xE0, 0xE5, 0xEB), C(0xFF, 0xFF, 0xFF)
+# 한글 본문 폰트. PowerPoint 는 한글에 East-Asian 서체를, 영문·숫자에 Latin 서체를
+# 따로 적용하므로 두 축을 함께 지정한다(하나만 넣으면 다른 쪽이 기본값으로 떨어져 깨진다).
+FONT    = "맑은 고딕"          # East-Asian (한글)
+FONT_LAT = "Segoe UI"          # Latin (영문·숫자) — 없으면 시스템 산세리프로 대체됨
+
+def _hex(h):
+    return C(int(h[1:3], 16), int(h[3:5], 16), int(h[5:7], 16))
+
+# 차트와 같은 색 체계 (config.py 에서 검증된 값)
+INK, MUTE  = _hex(cfg.INK), _hex(cfg.INK_2)
+FAINT      = _hex(cfg.INK_MUTE)
+ACC        = _hex(cfg.TYPE_COLOR["원도심"])       # 파랑 — 주 강조
+GREEN      = _hex(cfg.TYPE_COLOR["신도심"])
+AMBER      = _hex(cfg.TYPE_COLOR["기성시가지"])
+VIOLET     = _hex(cfg.TYPE_COLOR["읍지역"])
+BLUE       = ACC
+ALERT      = _hex(cfg.ST_CRITICAL)                # 경고에만 쓰는 빨강
+LIGHT, LINE, WHITE = _hex("#F6F7F9"), _hex("#E4E7EC"), C(0xFF, 0xFF, 0xFF)
+INKDEEP    = _hex("#0F1319")
 W, H, M = 13.333, 7.5, 0.72
+
+
+def _set_font(run, ea=FONT, latin=None):
+    """Latin / East-Asian / Complex-Script 서체를 함께 지정해 한글 깨짐을 막는다."""
+    run.font.name = latin or (FONT_LAT if ea == FONT else ea)
+    rPr = run._r.get_or_add_rPr()
+    for tag in ("a:ea", "a:cs"):
+        el = rPr.find(qn(tag))
+        if el is None:
+            el = rPr.makeelement(qn(tag), {}); rPr.append(el)
+        el.set("typeface", ea)
 
 
 def tb(sl, x, y, w, h, text, size=14, bold=False, color=INK, align=PP_ALIGN.LEFT,
@@ -30,7 +58,7 @@ def tb(sl, x, y, w, h, text, size=14, bold=False, color=INK, align=PP_ALIGN.LEFT
         if i: p.space_before = Pt(space)
         r = p.add_run(); r.text = ln
         r.font.size = Pt(size); r.font.bold = bold; r.font.color.rgb = color
-        r.font.name = font
+        _set_font(r, font)
     return s
 
 
@@ -123,7 +151,7 @@ def tablette(sl, df, x, y, w, colw=None, size=10.5, maxrows=10, head_bg=LIGHT,
         cell.vertical_anchor = MSO_ANCHOR.MIDDLE
         p = cell.text_frame.paragraphs[0]; p.alignment = PP_ALIGN.CENTER
         r = p.runs[0]; r.font.size = Pt(size); r.font.bold = True
-        r.font.color.rgb = INK; r.font.name = FONT
+        r.font.color.rgb = INK; _set_font(r)
     for i, row in enumerate(df.itertuples(index=False), start=1):
         for j, v in enumerate(row):
             cell = t.cell(i, j); cell.text = str(v)
@@ -132,7 +160,7 @@ def tablette(sl, df, x, y, w, colw=None, size=10.5, maxrows=10, head_bg=LIGHT,
             p = cell.text_frame.paragraphs[0]
             p.alignment = PP_ALIGN.CENTER if j else PP_ALIGN.LEFT
             r = p.runs[0]; r.font.size = Pt(size - .5)
-            r.font.color.rgb = INK; r.font.name = FONT
+            r.font.color.rgb = INK; _set_font(r)
     for i in range(nr):
         t.rows[i].height = In(rh)
     return t
@@ -159,27 +187,27 @@ def build(team="○○팀", members="홍길동"):
 
     # ══ 1. 표지 ══════════════════════════════════════════════
     sl = prs.slides.add_slide(prs.slide_layouts[6])
-    rect(sl, 0, 0, W, H, C(0x11, 0x18, 0x22), radius=False)
+    rect(sl, 0, 0, W, H, INKDEEP, radius=False)
     rect(sl, 0, 0, .13, H, ACC, radius=False)
     tb(sl, 1.15, 1.55, 11, .35, "2026년 천안시 AI·데이터 기반 정책 아이디어 경진대회",
-       13, True, C(0xE0, 0x8A, 0x8A))
+       13, True, _hex("#7FB3EE"))
     tb(sl, 1.15, 2.08, 11.2, .95, "천안 균형발전 나침반", 54, True, WHITE, line=1.1)
     tb(sl, 1.15, 3.12, 11.2, .5, "Cheonan Balance Compass", 20, False,
-       C(0x8A, 0x97, 0xA8))
+       _hex("#8894A6"))
     rect(sl, 1.15, 3.85, 5.6, .045, ACC, radius=False)
     tb(sl, 1.15, 4.12, 11, 1.0,
        "천안시민 누구나 걸어서 닿는 생활환경을 바라며,\n공공데이터로 먼저 살펴본 균형발전 이야기",
-       23, True, C(0xE9, 0xED, 0xF2), line=1.35)
+       23, True, _hex("#EAEEF4"), line=1.35)
     for i, (lab, val) in enumerate([("지정과제", "③ 지역균형발전"),
                                     ("응모분야", "AI 모델 개발"),
                                     ("분석단위", f"{S['생활권수']}개 생활권 · 지표 {S['지표수']}종")]):
         x = 1.15 + i * 3.55
-        tb(sl, x, 5.72, 3.3, .25, lab, 10.5, True, C(0x6E, 0x7B, 0x8C))
+        tb(sl, x, 5.72, 3.3, .25, lab, 10.5, True, _hex("#6E7B8C"))
         tb(sl, x, 6.0, 3.3, .3, val, 14, True, WHITE)
     tb(sl, 1.15, 6.72, 5.4, .3, f"{team} · {members}", 12, False, C(0x8A, 0x97, 0xA8))
     if not real:
         tb(sl, W - M - 5.2, 6.72, 5.2, .3,
-           "※ 일부 지표 예시 데이터 — 실데이터 재실행 후 제출", 10, True, AMBER,
+           "※ 일부 지표 예시 데이터 — 실데이터 재실행 후 제출", 10, True, _hex("#FAB219"),
            align=PP_ALIGN.RIGHT)
 
     # ══ 2. 한 장 요약 ════════════════════════════════════════
@@ -188,7 +216,7 @@ def build(team="○○팀", members="홍길동"):
                "천안시민의 생활여건 차이를 데이터로 살펴보고, 도움이 조금 더 필요한 곳을 "
                "먼저 찾아보고자 준비했습니다.")
     cards = [("격차 배율", f'{S["격차배율"]}배', f'신도심 {S["신도심_CBI"]} vs 원도심 {S["원도심_CBI"]}', ACC),
-             ("불균등도(지니)", f'{S["지니계수"]}', f'{S["생활권수"]}개 생활권 CBI 기준', AMBER),
+             ("불균등도(지니)", f'{S["지니계수"]}', f'{S["생활권수"]}개 생활권 CBI 기준', VIOLET),
              ("조기경보 방향 적중률",
               (f'{S["방향적중률"]:.0f}%' if S.get("방향적중률") == S.get("방향적중률")
                else "—") if S.get("예측엔진", True) else "데이터 대기",
@@ -334,14 +362,14 @@ def build(team="○○팀", members="홍길동"):
     n += 1
     sl = slide(prs, "METHOD · 01", "분석 공간단위를 25개 '생활권'으로 재설계한 이유",
                "데이터마다 공간 키가 달라서 생기는 오차를, 지표를 만들기 전에 먼저 제거했다.")
-    rect(sl, M, 2.55, 5.75, 1.72, C(0xFD, 0xF2, 0xF2))
+    rect(sl, M, 2.55, 5.75, 1.72, _hex("#FDF3F2"))
     tb(sl, M + .3, 2.78, 5.2, .3, "문제 — 공간 키 불일치", 13.5, True, ACC)
     tb(sl, M + .3, 3.16, 5.2, 1.0,
        "· 주민등록 인구통계는 행정동 기준 (성정1동 / 성정2동)\n"
        "· 인허가·상가정보는 주소 문자열 = 법정동 기준 (성정동 하나)\n"
        "· 주소만으로는 성정동 점포를 1동·2동으로 나눌 근거가 없다",
        11.5, False, INK, line=1.6)
-    rect(sl, M + 6.1, 2.55, 5.8, 1.72, C(0xF0, 0xF7, 0xF2))
+    rect(sl, M + 6.1, 2.55, 5.8, 1.72, _hex("#EFF7F3"))
     tb(sl, M + 6.4, 2.78, 5.2, .3, "해결 — 1:1 대응이 되는 수준까지 통합", 13.5, True, GREEN)
     tb(sl, M + 6.4, 3.16, 5.2, 1.0,
        "· 성정1·2동 → 성정동 / 쌍용1·2·3동 → 쌍용동\n"
@@ -423,14 +451,14 @@ def _part2(prs, S, cbi, ew, sites, prov, n):
                "원도심과 농촌면은 지수가 모두 낮게 나왔습니다. 그런데 항목을 나눠 보니 사정이 서로 달랐습니다.")
     fit(sl, "02_도메인_히트맵.png", M, 2.36, 7.35, 3.5)
     x = M + 7.65
-    rect(sl, x, 2.36, 4.2, 1.72, C(0xFD, 0xF2, 0xF2))
+    rect(sl, x, 2.36, 4.2, 1.72, _hex("#EFF5FD"))
     tb(sl, x + .26, 2.58, 3.7, .28, "원도심", 13.5, True, ACC)
     tb(sl, x + .26, 2.92, 3.7, 1.05,
        "시설은 이미 갖춰져 있습니다.\n어려운 쪽은 상권과 인구였습니다.\n"
        "→ 새로 짓기보다, 비어 있는 공간을 다시 쓰는 방향이 맞지 않을까 합니다",
        11, False, INK, line=1.5)
-    rect(sl, x, 4.22, 4.2, 1.72, C(0xF3, 0xF0, 0xF9))
-    tb(sl, x + .26, 4.44, 3.7, .28, "농촌면 · 읍지역", 13.5, True, C(0x6B, 0x5F, 0x9E))
+    rect(sl, x, 4.22, 4.2, 1.72, _hex("#F1EFF9"))
+    tb(sl, x + .26, 4.44, 3.7, .28, "농촌면 · 읍지역", 13.5, True, VIOLET)
     tb(sl, x + .26, 4.78, 3.7, 1.05,
        "가까운 시설 자체가 부족합니다.\n대중교통 여건도 넉넉하지 않습니다.\n"
        "→ 거점 복합시설과 이동 지원을 함께 보시면 좋겠습니다",
@@ -450,7 +478,7 @@ def _part2(prs, S, cbi, ew, sites, prov, n):
     # 실데이터에서 관측된 반등 사례 — 제안의 전제를 뒷받침하는 대목
     up = cbi.nlargest(2, "pop_growth_5y")[["ztype", "pop_growth_5y"]]
     names = ", ".join(f"{z}({r.pop_growth_5y:+.0f}%)" for z, r in up.iterrows())
-    rect(sl, M, 6.0, W - 2 * M, .96, C(0xF0, 0xF7, 0xF2))
+    rect(sl, M, 6.0, W - 2 * M, .96, _hex("#EFF7F3"))
     tb(sl, M + .3, 6.18, 11.5, .3,
        "다만 '원도심이면 다 줄어든다'는 것은 아니었습니다.", 13, True, GREEN)
     tb(sl, M + .3, 6.5, 11.5, .4,
@@ -506,7 +534,7 @@ def _part2(prs, S, cbi, ew, sites, prov, n):
     fit(sl, "04_조기경보.png", M, 2.3, 5.6, 4.35)
     fit(sl, "05_SHAP_요인분해.png", M + 5.8, 2.3, 6.1, 3.1)
     if not len(ew):
-        rect(sl, M + 5.8, 5.5, 6.1, .9, C(0xFD, 0xF8, 0xEC))
+        rect(sl, M + 5.8, 5.5, 6.1, .9, _hex("#FDF8EC"))
         tb(sl, M + 6.05, 5.68, 5.6, .55,
            "예측 엔진 미실행 — " + S.get("예측미실행사유", ""), 10.5, False, INK, line=1.4)
         footer(sl, n); return _part3(prs, S, cbi, ew, sites, prov, n)
@@ -542,7 +570,7 @@ def _part3(prs, S, cbi, ew, sites, prov, n):
         ("탐욕 근사의 보장",
          "submodular 목적함수이므로 탐욕해가 최적해의 (1−1/e)≈63% 이상을 보장한다."),
     ], size=11.5, gap=.38)
-    rect(sl, M + 6.65, 2.5, 5.25, 3.05, C(0xF0, 0xF7, 0xF2))
+    rect(sl, M + 6.65, 2.5, 5.25, 3.05, _hex("#EFF7F3"))
     tb(sl, M + 6.95, 2.74, 4.7, .3, "형평성 제약을 넣은 이유", 13.5, True, GREEN)
     tb(sl, M + 6.95, 3.14, 4.7, 2.2,
        "계산만 그대로 두면 효율이 가장 높은 한 동네에 전부 몰립니다. 수식으로는 맞지만 "
@@ -612,7 +640,7 @@ def _part3(prs, S, cbi, ew, sites, prov, n):
         rect(sl, x, y, .075, 1.5, col, radius=False)
         tb(sl, x + .28, y + .2, 5.1, .3, who, 13.5, True, col)
         tb(sl, x + .28, y + .6, 5.1, .8, body, 11, False, MUTE, line=1.5)
-    rect(sl, M, 6.06, W - 2 * M, .86, C(0xF0, 0xF7, 0xF2))
+    rect(sl, M, 6.06, W - 2 * M, .86, _hex("#EFF7F3"))
     tb(sl, M + .3, 6.26, 11.5, .5,
        "저희는 천안시 사정을 현장에서 겪어보지 못한 참가자입니다. 다만 공개된 데이터로 할 수 있는 만큼은 성실하게 살펴보았습니다.\n"
        "부족한 부분은 현장을 아시는 분들이 채워주시길 바라며, 이 자료가 그 논의의 출발점이 될 수 있다면 더 바랄 것이 없겠습니다.",
@@ -639,11 +667,11 @@ def _part3(prs, S, cbi, ew, sites, prov, n):
         x = M + (i % 2) * 6.1
         y = 2.5 + (i // 2) * 1.72
         rect(sl, x, y, 5.75, 1.5, WHITE, LINE)
-        rect(sl, x, y, .075, 1.5, [ACC, BLUE, GREEN, AMBER][i], radius=False)
-        tb(sl, x + .28, y + .18, 2.4, .28, who, 12.5, True, [ACC, BLUE, GREEN, AMBER][i])
+        rect(sl, x, y, .075, 1.5, [ACC, GREEN, AMBER, VIOLET][i], radius=False)
+        tb(sl, x + .28, y + .18, 2.4, .28, who, 12.5, True, [ACC, GREEN, AMBER, VIOLET][i])
         tb(sl, x + .28, y + .5, 5.1, .28, what, 13.5, True, INK)
         tb(sl, x + .28, y + .84, 5.1, .6, how, 10.8, False, MUTE, line=1.45)
-    rect(sl, M, 6.06, W - 2 * M, .86, C(0xF0, 0xF7, 0xF2))
+    rect(sl, M, 6.06, W - 2 * M, .86, _hex("#EFF7F3"))
     tb(sl, M + .3, 6.24, 11.5, .55,
        "쓰시는 방법 — 연 1회 공공데이터를 새로 받아 스크립트를 실행하시면 모든 자료가 다시 만들어집니다.\n"
        "별도 시스템이나 데이터 구매 없이, 담당자 한 분이 반나절이면 그 해 자료를 준비하실 수 있습니다.",
@@ -724,8 +752,8 @@ def _part3(prs, S, cbi, ew, sites, prov, n):
         for j, it in enumerate(items):
             tb(sl, x + .3, 3.0 + j * .52, .2, .28, "·", 13, True, col)
             tb(sl, x + .52, 3.0 + j * .52, 5.0, .45, it, 11, False, INK, line=1.4)
-    rect(sl, M, 5.26, W - 2 * M, 1.15, C(0xFD, 0xF2, 0xF2))
-    tb(sl, M + .32, 5.48, 11.4, .32, "실데이터 / 예시데이터 구분 장치", 13.5, True, ACC)
+    rect(sl, M, 5.26, W - 2 * M, 1.15, _hex("#FDF3F2"))
+    tb(sl, M + .32, 5.48, 11.4, .32, "실데이터 / 예시데이터 구분 장치", 13.5, True, ALERT)
     tb(sl, M + .32, 5.84, 11.4, .5,
        "파이프라인은 각 지표가 실데이터인지 예시(illustrative) 값인지를 매 실행마다 판정해 로그·대시보드·본 기획서에 표기한다.\n"
        "예시 데이터를 실측치로 오인해 제출하는 사고를 막기 위한 장치이며, 실데이터를 넣으면 해당 표기가 자동으로 사라진다.",
@@ -734,7 +762,7 @@ def _part3(prs, S, cbi, ew, sites, prov, n):
        f"현재 상태: 실데이터 지표 {S['실데이터지표']}"
        + ("  ·  전 지표 실데이터로 제출 가능" if S["전체실데이터"]
           else "  ·  제출 전 실데이터 투입 후 재실행 필요"),
-       12, True, GREEN if S["전체실데이터"] else ACC)
+       12, True, GREEN if S["전체실데이터"] else ALERT)
     footer(sl, n)
     return n
 
