@@ -34,6 +34,7 @@ def table(df, cls="", maxrows=30):
 
 def build(cbi, weights, res, shap_glob, sites, prov, S, gaps, panels):
     real = S["전체실데이터"]
+    ok = S.get("예측엔진", True)
     badge = ('<span class="bdg ok">전 지표 실데이터</span>' if real else
              f'<span class="bdg warn">예시 데이터 포함 · 실데이터 {S["실데이터지표"]}</span>')
     warn = "" if real else (
@@ -42,9 +43,11 @@ def build(cbi, weights, res, shap_glob, sites, prov, S, gaps, panels):
         '<code>data/raw/</code> 에 실제 CSV를 넣고 <code>python3 src/run_all.py</code> 를 다시 실행하면 '
         '전 항목이 실데이터로 자동 갱신됩니다. <b>제출 전 반드시 실데이터로 재생성하세요.</b></div>')
 
+    _ = ok
     kpi = [("격차 배율", f'{S["격차배율"]}배', f'신도심 {S["신도심_CBI"]} vs 원도심 {S["원도심_CBI"]}'),
            ("지니계수", f'{S["지니계수"]}', "25개 생활권 CBI 불균등도"),
-           ("조기경보 정확도", f'R² {S["모델_R2"]}', f'베이스라인 대비 MAE {S["MAE_개선율"]}%↓'),
+           ("조기경보 정확도", f'R² {S["모델_R2"]}' if ok else "데이터 대기",
+            f'베이스라인 대비 MAE {S["MAE_개선율"]}%↓' if ok else "다른 연도 인구 파일 필요"),
            ("추천 투자 수혜", f'{S["신규수혜인구"]:,}명', f'{S["추천입지수"]}개소 · 커버리지 +{S["커버리지개선"]}%p')]
     kpis = "".join(f'<div class="kpi"><span class="lab">{a}</span>'
                    f'<span class="val">{b}</span><span class="sub">{c}</span></div>'
@@ -54,9 +57,13 @@ def build(cbi, weights, res, shap_glob, sites, prov, S, gaps, panels):
     rank["CBI"] = rank["CBI"].round(1)
     rank.columns = ["생활권", "자치구", "권역유형", "CBI", "쇠퇴단계"]
 
-    ew = res.copy().round(1)
-    ew.columns = ["생활권", "현재 위험도", "3년 후 예측", "변화"]
-    ew = ew.head(10)
+    ok = S.get("예측엔진", True)
+    if ok and res is not None and len(res):
+        ew = res.copy().round(1)
+        ew.columns = ["생활권", "현재 위험도", "3년 후 예측", "변화"]
+        ew = ew.head(10)
+    else:
+        ew = pd.DataFrame({"안내": [S.get("예측미실행사유", "예측 엔진 미실행")]})
 
     w = weights.rename("가중치").to_frame()
     from config import INDICATORS

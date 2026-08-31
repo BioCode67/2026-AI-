@@ -60,8 +60,9 @@ def build_zone_table() -> tuple[pd.DataFrame, dict]:
     df["area_km2"]       = df["zone"].map(I.AREA_KM2)
     df["pop_density"]    = df["pop"] / df["area_km2"]
 
-    missing = [k for k in INDICATORS if k not in df.columns]
-    assert not missing, f"지표 누락: {missing}"
+    for k in INDICATORS:                       # 누락 지표는 NaN 컬럼으로 두고 CBI에서 자동 제외
+        if k not in df.columns:
+            df[k] = np.nan
 
     panels = dict(pop=pop_panel, biz=biz_panel, points=points, soc_cols=soc_cols)
     df.to_csv(TAB / "01_생활권_지표원표.csv", index=False, encoding="utf-8-sig")

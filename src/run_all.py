@@ -28,8 +28,19 @@ def main(n_sites: int = 12):
     gaps = cbi_mod.gap_stats(cbi)
 
     panel = forecast.build_panel(panels, cbi.reset_index())
-    model, res, metrics, X, latest = forecast.fit_evaluate(panel)
-    shap_glob, shap_local = forecast.explain(model, X, latest)
+    forecast_ok, res, metrics, shap_glob, shap_local = True, None, {}, None, None
+    try:
+        model, res, metrics, X, latest = forecast.fit_evaluate(panel, cbi.reset_index())
+        shap_glob, shap_local = forecast.explain(model, X, latest)
+    except forecast.InsufficientData as e:
+        forecast_ok = False
+        print(f"\n▶ 조기경보 모델 \033[93m[건너뜀]\033[0m {e}")
+        for f in ("04_쇠퇴조기경보_예측.csv", "05_모델성능.csv",
+                  "06_SHAP_전역중요도.csv", "07_SHAP_생활권별요인.csv"):
+            (TAB / f).unlink(missing_ok=True)
+        for f in ("04_조기경보.png", "05_SHAP_요인분해.png"):
+            (FIG / f).unlink(missing_ok=True)
+        metrics = dict(status="unavailable", reason=str(e))
 
     sites = optimize.greedy_sites(cbi.reset_index(), panels["points"],
                                   n_sites=n_sites)
@@ -44,8 +55,9 @@ def main(n_sites: int = 12):
     viz.fig_cbi_rank(cbi)
     viz.fig_domain_heat(cbi)
     viz.fig_gap_trend(panels, cbi)
-    viz.fig_earlywarn(res, cbi)
-    viz.fig_shap(shap_glob, shap_local, res)
+    if forecast_ok:
+        viz.fig_earlywarn(res, cbi)
+        viz.fig_shap(shap_glob, shap_local, res)
     viz.fig_soc_gap(cbi)
     viz.fig_site_map(sites, panels["points"], cbi)
     viz.fig_coverage(sites)
@@ -57,10 +69,14 @@ def main(n_sites: int = 12):
         변동계수=round(gaps["변동계수"], 1),
         최고=f'{gaps["최고동"]} {gaps["최고"]:.0f}', 최저=f'{gaps["최저동"]} {gaps["최저"]:.0f}',
         군집수=int(cbi.attrs["k"]), 실루엣=round(float(cbi.attrs["silhouette"]), 3),
-        모델_R2=round(metrics["R2"], 3), 모델_MAE=round(metrics["MAE"], 2),
-        베이스라인_MAE=round(metrics["baseline_MAE"], 2),
-        MAE_개선율=round(metrics["MAE_개선율"], 1),
-        위험급등_생활권=res.nlargest(3, "risk_delta")["zone"].tolist(),
+        예측엔진=forecast_ok,
+        예측미실행사유=metrics.get("reason", ""),
+        모델_모드=metrics.get("mode", "panel"),
+        모델_R2=round(metrics["R2"], 3) if forecast_ok else None,
+        모델_MAE=round(metrics["MAE"], 2) if forecast_ok else None,
+        베이스라인_MAE=round(metrics["baseline_MAE"], 2) if forecast_ok else None,
+        MAE_개선율=round(metrics["MAE_개선율"], 1) if forecast_ok else None,
+        위험급등_생활권=res.nlargest(3, "risk_delta")["zone"].tolist() if forecast_ok else [],
         추천입지수=len(sites),
         신규수혜인구=int(sites["신규수혜인구"].sum()) if len(sites) else 0,
         커버리지개선=round(float(sites["커버리지개선률"].sum()), 1) if len(sites) else 0,
@@ -72,6 +88,10 @@ def main(n_sites: int = 12):
     print("\n▶ 대시보드 생성")
     dashboard.build(cbi, weights, res, shap_glob, sites, prov, summary, gaps, panels)
 
+    print("\n▶ 기획서 생성")
+    import make_deck
+    make_deck.save()
+
     print("\n" + BAR)
     print(f"  완료 ({time.time() - t0:.1f}s)   실데이터 지표: {n_real}/{len(prov)}")
     if not all_real:
@@ -80,7 +100,8 @@ def main(n_sites: int = 12):
         print("    → docs/01_데이터_수집_가이드.md 대로 CSV를 넣고 다시 실행하면 전부 실데이터로 갱신됩니다.")
     else:
         print("  ✅ 전 지표 실데이터 — 그대로 제출 가능")
-    print(f"  산출물: outputs/figures/(8장)  outputs/tables/(9종)  deliverables/dashboard.html")
+    print("  산출물: outputs/figures/(8장) · outputs/tables/(9종) ·"
+          " deliverables/{dashboard.html, 기획서_*.pptx}")
     print(BAR)
     return summary
 

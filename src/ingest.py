@@ -27,7 +27,9 @@ def log(msg): print(msg, flush=True)
 
 def note(key, status, source, detail="", rows=0):
     PROVENANCE[key] = dict(status=status, source=source, detail=detail, rows=rows)
-    badge = "\033[92m[REAL]\033[0m" if status == "REAL" else "\033[93m[ILLUSTRATIVE]\033[0m"
+    badge = {"REAL": "\033[92m[REAL]\033[0m",
+             "PARTIAL": "\033[96m[PARTIAL]\033[0m"}.get(
+                 status, "\033[93m[ILLUSTRATIVE]\033[0m")
     log(f"  {badge} {key:<14} {source} {('· ' + detail) if detail else ''}")
 
 
@@ -165,9 +167,15 @@ def load_population() -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def _parse_population(df):
-    region_col = find_col(df, "행정구역", "행정기관", "읍면동", "구분")
-    if region_col is None:
-        region_col = df.columns[0]
+    """
+    행안부 주민등록 '연령별 인구현황' 파서.
+    실제 컬럼 형식: `2026년03월_계_총인구수`, `2026년03월_계_20~29세`, `..._남_...`, `..._여_...`
+    주의점 세 가지를 명시적으로 처리한다.
+      ① 계/남/여가 모두 들어 있으므로 **'계'만** 쓴다 (안 그러면 인구가 2배가 된다)
+      ② 한 파일에 여러 달이 들어 있으므로 **연도별 최신 월**만 쓴다 (합산하면 개월 수만큼 부풀려진다)
+      ③ 65세+ 구간이 없고 10세 단위이므로 70세+ 전량 + 60~69세의 1/2로 근사한다
+    """
+    region_col = find_col(df, "행정구역", "행정기관", "읍면동", "구분") or df.columns[0]
     df = df.copy()
     df["zone"] = df[region_col].map(zone_from_hdong)
     df = df[df["zone"].notna()]
@@ -176,68 +184,82 @@ def _parse_population(df):
 
     def num(s):
         return pd.to_numeric(
-            s.astype(str).str.replace(r"[,\s]", "", regex=True), errors="coerce").fillna(0)
+            s.astype(str).str.replace(r"[,\s\"]", "", regex=True), errors="coerce").fillna(0)
 
-    # 컬럼명에서 연도 추출: '2024년12월_총인구수', '2024_0~9세' 등
-    yr = lambda c: (m.group(0) if (m := re.search(r"(19|20)\d{2}", str(c))) else None)
+    # 컬럼명 파싱 → (연, 월, 성별, 지표)
+    PAT = re.compile(r"(\d{4})\s*년\s*(\d{1,2})\s*월[_\s]*(계|남|여)?[_\s]*(.+?)\s*$")
+    parsed = {}
+    for c in df.columns:
+        m = PAT.match(str(c).strip().strip('"'))
+        if m:
+            y, mo, g, metric = int(m.group(1)), int(m.group(2)), m.group(3), m.group(4)
+            parsed[c] = (y, mo, g, metric.replace(" ", ""))
+    if not parsed:                                   # 연·월 표기가 없는 단순 형식
+        tot = find_col(df, "총인구수", "인구수")
+        if tot is None:
+            raise ValueError("총인구수 컬럼을 찾을 수 없음")
+        g = df.assign(v=num(df[tot])).groupby("zone")["v"].sum()
+        parsed_panel = pd.DataFrame({"zone": g.index, "year": 2025, "pop": g.values})
+        return _finish_population(df, parsed_panel, {}, num, 2025)
 
-    tot_cols  = [c for c in df.columns if "총인구수" in str(c).replace(" ", "")]
-    if not tot_cols:
-        tot_cols = [c for c in df.columns if re.search(r"인구수|계$", str(c))]
+    genders = {v[2] for v in parsed.values()}
+    use_g = "계" if "계" in genders else None        # ①
+    sel = {c: v for c, v in parsed.items() if v[2] == use_g}
 
-    # 연도별 총인구 패널
+    # ② 연도별 최신 (연,월)
+    ym = sorted({(v[0], v[1]) for v in sel.values()})
+    latest_of_year = {}
+    for y, mo in ym:
+        if y not in latest_of_year or mo > latest_of_year[y]:
+            latest_of_year[y] = mo
+
     rows = []
-    for c in tot_cols:
-        y = yr(c)
-        if y is None:
+    for y, mo in latest_of_year.items():
+        cols = [c for c, v in sel.items() if v[0] == y and v[1] == mo and v[3] == "총인구수"]
+        if not cols:
             continue
-        g = df.assign(v=num(df[c])).groupby("zone")["v"].sum()
-        for z, v in g.items():
-            rows.append({"zone": z, "year": int(y), "pop": v})
+        g = df.assign(v=num(df[cols[0]])).groupby("zone")["v"].sum()
+        for z, val in g.items():
+            rows.append({"zone": z, "year": y, "pop": val})
     panel = pd.DataFrame(rows)
-    if panel.empty:                                  # 연도 표기가 없는 단년 파일
-        c = tot_cols[0]
-        g = df.assign(v=num(df[c])).groupby("zone")["v"].sum()
-        panel = pd.DataFrame({"zone": g.index, "year": 2025, "pop": g.values})
-    panel = panel.groupby(["zone", "year"], as_index=False)["pop"].sum()
+    if panel.empty:
+        raise ValueError("총인구수 컬럼을 연·월 기준으로 특정하지 못함")
 
     last = int(panel["year"].max())
-    cur  = panel[panel.year == last].set_index("zone")["pop"]
-    # 기준연도는 '최신-5'로 고정하지 않고 **실제로 존재하는 연도 중 가장 가까운 해**를 쓴다.
-    # (주민등록 포털이 조회기간을 6개월로 제한해 연도가 띄엄띄엄 수집되는 상황 대응)
+    last_mo = latest_of_year[last]
+    age_cols = {v[3]: c for c, v in sel.items() if v[0] == last and v[1] == last_mo}
+    return _finish_population(df, panel, age_cols, num, last, f"{last}년{last_mo:02d}월")
+
+
+def _finish_population(df, panel, age_cols, num, last, stamp=None):
+    panel = panel.groupby(["zone", "year"], as_index=False)["pop"].sum()
+    cur = panel[panel.year == last].set_index("zone")["pop"]
+
     avail = sorted(int(y) for y in panel["year"].unique() if int(y) != last)
     if avail:
         base_y = min(avail, key=lambda y: abs(y - (last - 5)))
         base = panel[panel.year == base_y].set_index("zone")["pop"]
         span = max(last - base_y, 1)
-        ratio = cur / base.reindex(cur.index).replace(0, np.nan)
-        growth = (ratio.pow(5.0 / span) - 1) * 100        # 5년 환산 증감률(CAGR 기준)
+        growth = ((cur / base.reindex(cur.index).replace(0, np.nan)).pow(5.0 / span) - 1) * 100
+        span_txt = f"{base_y}~{last}년(5년환산)"
     else:
-        base_y, span = last, 0
-        growth = pd.Series(0.0, index=cur.index)
-        log("    ! 단일 연도만 수집됨 → 인구증감률 0 처리 "
-            "(다른 연도 파일을 pop_jumin_2.csv 로 추가하면 자동 계산)")
+        base_y, growth = last, pd.Series(0.0, index=cur.index)
+        span_txt = f"{last}년 단일시점"
+        log("    ! 단일 연도만 수집됨 → 인구증감률 0 처리. "
+            "다른 연도 파일을 data/raw/pop_jumin_2.csv 로 추가하면 자동 계산됩니다.")
 
-    # 연령 구성 (최신연도 컬럼만)
-    def agesum(patterns):
+    def agesum(keys):
         tot = pd.Series(0.0, index=df.index)
-        for c in df.columns:
-            cc = str(c).replace(" ", "")
-            if yr(c) not in (str(last), None):
-                continue
-            if any(p in cc for p in patterns):
+        for k in keys:
+            c = age_cols.get(k)
+            if c is not None:
                 tot += num(df[c])
         return tot
 
-    youth = agesum(["20~29", "30~39", "20-29", "30-39"])
-    old   = agesum(["65세이상", "65세 이상"])
-    if old.sum() == 0:
-        old = (agesum(["70~79", "80~89", "90~99", "100세"]) + 0.5 * agesum(["60~69"]))
-    totp = agesum(["총인구수"])
-    if totp.sum() == 0:
-        totp = cur.reindex(df["zone"]).values
-
-    tmp = df[["zone"]].assign(youth=youth.values, old=old.values, tot=np.asarray(totp))
+    youth = agesum(["20~29세", "30~39세"])
+    old   = agesum(["70~79세", "80~89세", "90~99세", "100세이상"]) + 0.5 * agesum(["60~69세"])  # ③
+    totp  = agesum(["총인구수"])
+    tmp = df[["zone"]].assign(youth=youth.values, old=old.values, tot=totp.values)
     agg = tmp.groupby("zone")[["youth", "old", "tot"]].sum()
     agg["tot"] = agg["tot"].replace(0, np.nan)
 
@@ -246,8 +268,11 @@ def _parse_population(df):
     out["youth_ratio"]   = agg["youth"] / agg["tot"] * 100
     out["aging_ratio"]   = agg["old"]   / agg["tot"] * 100
     out["pop_growth_5y"] = growth
+    if out["youth_ratio"].isna().all():
+        log("    ! 연령 구간 컬럼을 찾지 못해 청년·고령 비율을 산출하지 못했습니다.")
     note("인구", "REAL", "행안부 주민등록 인구통계(jumin.mois.go.kr)",
-         f"{base_y}~{last}년(5년환산), {len(panel.zone.unique())}개 생활권", len(df))
+         f"{span_txt}, {panel.zone.nunique()}개 생활권"
+         + (f", 연령기준 {stamp}" if stamp else ""), len(df))
     return out.reset_index(), panel
 
 
@@ -279,8 +304,59 @@ def load_business() -> tuple[pd.DataFrame, pd.DataFrame]:
         try:
             return _parse_business(df)
         except Exception as e:
-            log(f"    ! localdata_license 파싱 실패({e}) → 예시 데이터로 대체")
+            log(f"    ! localdata_license 파싱 실패({e}) → 상가정보로 대체 시도")
+    # LOCALDATA가 없어도 상가정보만으로 경제활력 지표 대부분을 복원한다.
+    sg = load_stack("store_sangga")
+    if sg is not None:
+        try:
+            return _business_from_sangga(sg)
+        except Exception as e:
+            log(f"    ! store_sangga 파싱 실패({e}) → 예시 데이터로 대체")
     return _illustrative_business()
+
+
+def _business_from_sangga(sg):
+    """
+    소상공인 상가(상권)정보만으로 경제활력을 산출.
+    · 확보: 사업체 수(active_biz) · 업종 다양성(Shannon)
+    · 불가: 개·폐업 시계열이 없으므로 상권순증감/폐업률은 산출 불가 → NaN 으로 두고
+            CBI 계산에서 자동 제외한다(있는 지표만으로 가중치를 다시 계산).
+    """
+    hd = find_col(sg, "행정동명")
+    adr = find_col(sg, "도로명주소", "지번주소", "소재지")
+    mid = find_col(sg, "상권업종중분류명", "상권업종대분류명", "표준산업분류명")
+    d = sg.copy()
+    if hd is not None:
+        d["zone"] = d[hd].map(zone_from_hdong)
+    if hd is None or d["zone"].notna().sum() == 0:
+        if adr is None:
+            raise ValueError("행정동명/주소 컬럼 없음")
+        d["zone"] = d[adr].map(zone_from_address)
+    d = d[d["zone"].notna()]
+    if not len(d):
+        raise ValueError("천안시 행정동을 한 건도 매칭하지 못함")
+
+    out = base_frame().set_index("zone")
+    out["active_biz"] = d.groupby("zone").size()
+    out["active_biz"] = out["active_biz"].fillna(0)
+    if mid is not None:
+        div = {}
+        for z, g in d.groupby("zone"):
+            pr = g[mid].astype(str).value_counts(normalize=True).values
+            div[z] = float(-(pr * np.log(pr + 1e-12)).sum())
+        out["biz_diversity"] = pd.Series(div)
+    else:
+        out["biz_diversity"] = np.nan
+    out["biz_net_growth"] = np.nan          # 시계열 부재 → CBI에서 자동 제외
+    out["closure_rate"]   = np.nan
+
+    yr = 2025
+    panel = pd.DataFrame({"zone": out.index, "year": yr,
+                          "opened": np.nan, "closed": np.nan,
+                          "active": out["active_biz"].values})
+    note("상권", "PARTIAL", "소상공인 상가(상권)정보(data.go.kr)",
+         f"{len(d):,}건 매칭 / {d.zone.nunique()}개 생활권 · 개폐업 시계열 없음", len(d))
+    return out.reset_index(), panel
 
 
 def _parse_business(df):

@@ -14,10 +14,29 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import INDICATORS, DOMAINS, DECLINE_LABELS, TAB, RANDOM_SEED
 
 
-def normalize(df: pd.DataFrame) -> pd.DataFrame:
+def usable_indicators(df: pd.DataFrame) -> list[str]:
+    """
+    데이터가 없어 산출 불가한 지표는 CBI에서 제외한다.
+    (예: 상가정보만 있고 인허가 시계열이 없으면 상권순증감·폐업률이 빠짐)
+    빠진 지표의 몫은 엔트로피 가중이 남은 지표에 자동 재배분하므로 지수는 계속 유효하다.
+    """
+    ok = []
+    for k in INDICATORS:
+        if k not in df.columns:
+            continue
+        v = pd.to_numeric(df[k], errors="coerce")
+        if v.notna().sum() >= max(3, int(len(v) * 0.5)) and v.std(skipna=True) > 0:
+            ok.append(k)
+    dropped = [INDICATORS[k][1] for k in INDICATORS if k not in ok]
+    if dropped:
+        print(f"    · 데이터 부재로 제외된 지표 {len(dropped)}개: {', '.join(dropped)}")
+    return ok
+
+
+def normalize(df: pd.DataFrame, keys=None) -> pd.DataFrame:
     """방향 보정 min-max 정규화 → 0~1 (1이 항상 '좋음')"""
     Z = pd.DataFrame(index=df.index)
-    for k, (_, _, direction, _) in INDICATORS.items():
+    for k, (_, _, direction, _) in ((k, INDICATORS[k]) for k in (keys or INDICATORS)):
         v = pd.to_numeric(df[k], errors="coerce")
         v = v.fillna(v.median())
         lo, hi = v.min(), v.max()
@@ -41,12 +60,17 @@ def entropy_weights(Z: pd.DataFrame) -> pd.Series:
 
 
 def compute(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
-    Z = normalize(df.set_index("zone"))
+    X = df.set_index("zone")
+    keys = usable_indicators(X)
+    Z = normalize(X, keys)
     w = entropy_weights(Z)
 
     out = df.set_index("zone").copy()
     for dom in DOMAINS:
-        ks = [k for k, v in INDICATORS.items() if v[0] == dom]
+        ks = [k for k in keys if INDICATORS[k][0] == dom]
+        if not ks:
+            out[f"D_{dom}"] = np.nan
+            continue
         ww = w[ks] / w[ks].sum()
         out[f"D_{dom}"] = (Z[ks] * ww).sum(axis=1) * 100
     out["CBI"] = (Z * w).sum(axis=1) * 100
@@ -66,6 +90,7 @@ def compute(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     out["stage"] = out["cluster"].map(lab)
     out.attrs["silhouette"] = sil
     out.attrs["k"] = k
+    out.attrs["indicators_used"] = keys
 
     out = out.sort_values("CBI", ascending=False)
     out.reset_index().to_csv(TAB / "02_CBI_균형발전지수.csv", index=False, encoding="utf-8-sig")
