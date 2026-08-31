@@ -21,6 +21,7 @@ from config import (RAW, ZONE_NAMES, ZONE_GU, ZONE_TYPE, BDONG_KEYS_SORTED,
 
 ENCODINGS = ("utf-8-sig", "cp949", "euc-kr", "utf-8", "latin1")
 PROVENANCE: dict[str, dict] = {}      # 지표군 → {status, source, note, rows}
+CITY_STATS: dict[str, float] = {}     # 생활권 비교엔 못 쓰지만 배경 서술에 쓰는 시 단위 수치
 
 
 def log(msg): print(msg, flush=True)
@@ -662,8 +663,14 @@ def load_housing(pop: pd.DataFrame) -> pd.DataFrame:
     if STRICT:
         out["vacancy_rate"] = np.nan
         out["old_building"] = np.nan
-        note("주거", "MISSING", "미확보",
-             "빈집 통계(천안시 동남구·서북구 단위)를 넣으면 산출됩니다")
+        if CITY_STATS.get("빈집률") is not None:
+            note("주거", "PARTIAL", "KOSIS 미거주주택(빈집)비율",
+                 f"천안시 전체 {CITY_STATS['빈집률']:.1f}%"
+                 + (f" · {CITY_STATS['빈집수']:,}호" if "빈집수" in CITY_STATS else "")
+                 + " — 시 단위 단일값이라 생활권 비교지표에서는 제외하고 배경 수치로만 사용")
+        else:
+            note("주거", "MISSING", "미확보",
+                 "빈집 통계(천안시 동남구·서북구 단위)를 넣으면 생활권 지표로 산출됩니다")
         return out.reset_index()
     rng = np.random.default_rng(RANDOM_SEED + 3)
     out["vacancy_rate"] = pd.Series({
@@ -677,11 +684,30 @@ def load_housing(pop: pd.DataFrame) -> pd.DataFrame:
 
 def _parse_vacancy(df, pop, out):
     """읍면동 → 구 → 시 순으로 가장 세밀한 단위를 찾아 빈집률을 만든다."""
-    rc = find_col(df, "행정구역", "지역", "시군구", "읍면동", "구분") or df.columns[0]
-    d = only_cheonan(df).copy()
+    # KOSIS 는 지역명을 여러 컬럼으로 쪼개 준다
+    # (예: 행정구역별(1)=충청남도 / (2)=천안시 / (3)=동남구).
+    # 한 컬럼만 보면 천안을 놓치므로 지역 관련 컬럼을 모두 이어 붙여 판단한다.
+    rcs = [c for c in df.columns
+           if any(k in str(c) for k in ("행정구역", "시군구", "지역", "읍면동"))]
+    if not rcs:
+        rcs = [df.columns[0]]
+    d = df.copy()
+    # KOSIS 는 하위 행에서 상위 지역칸을 비워 둔다
+    # (충청남도 / 천안시 / 소계  →  다음 행은 (1)(2)가 비고 (3)만 '동남구').
+    # 그대로 이어 붙이면 하위 행에 '천안'이 없어 필터에서 탈락하므로 먼저 채워 넣는다.
+    parts = []
+    for c in rcs:
+        col = d[c].astype("string").str.strip()
+        col = col.where(~col.isin(["nan", ""]), pd.NA).ffill().fillna("")
+        col = col.where(~col.isin(["소계", "계"]), "")
+        parts.append(col.astype(str))
+    d["_region"] = parts[0]
+    for col in parts[1:]:
+        d["_region"] = (d["_region"] + " " + col).str.strip()
+    d = d[d["_region"].str.contains("천안", na=False)]
     if not len(d):
-        d = df.copy()
-    reg = d[rc].astype(str)
+        return None
+    reg = d["_region"]
 
     def num(col):
         return pd.to_numeric(col.astype(str).str.replace(r"[,\s%]", "", regex=True),
@@ -689,7 +715,9 @@ def _parse_vacancy(df, pop, out):
 
     # 값 컬럼: '비율'이 있으면 그대로, 없으면 빈집 호수 / 세대수로 계산
     ratio_col = find_col(d, "비율", "율")
-    cnt_col = find_col(d, "미거주", "빈집", "공가", "호수")
+    # 개수 컬럼을 찾을 때 '비율'이 들어간 컬럼을 집지 않도록 제외한다
+    cnt_col = find_col(d, "미거주주택(빈집)수", "빈집수", "공가수", "호수",
+                       "미거주", "빈집", "공가", exclude=("비율", "율", "전체주택"))
 
     # ① 읍면동 단위인가?
     z = reg.map(zone_from_hdong)
@@ -702,7 +730,24 @@ def _parse_vacancy(df, pop, out):
         note("주거", "REAL", "KOSIS 미거주주택(빈집) 통계", f"읍면동 단위 {len(g)}곳", len(d))
         return g.reindex(out.index)
 
-    # ② 구 단위(동남구/서북구)인가?
+    # ② 시 단위(천안시 한 값)인가? — 비교 지수로는 못 쓰지만 배경 수치로 기록한다
+    if reg.str.contains("천안시", na=False).any() and not reg.str.contains("동남구|서북구",
+                                                                        na=False).any():
+        v = num(d[ratio_col]) if ratio_col else None
+        cnt = num(d[cnt_col]) if cnt_col is not None else None
+        row = d[reg.str.contains("천안시", na=False)]
+        if v is not None and len(row):
+            i = row.index[0]
+            CITY_STATS["빈집률"] = float(v.loc[i])
+            if cnt is not None:
+                CITY_STATS["빈집수"] = int(cnt.loc[i])
+            note("주거", "PARTIAL", "KOSIS 미거주주택(빈집)비율(시도/시/군/구)",
+                 f"천안시 전체 {CITY_STATS['빈집률']:.1f}%"
+                 + (f" · {CITY_STATS.get('빈집수', 0):,}호" if "빈집수" in CITY_STATS else "")
+                 + " — 시 단위 단일값이라 생활권 비교지표로는 쓰지 않고 배경 수치로만 사용",
+                 len(d))
+            return None          # 전 생활권 동일값 → 지수에서 자동 제외
+    # ③ 구 단위(동남구/서북구)인가?
     gu = reg.str.extract(r"(동남구|서북구)")[0]
     if gu.notna().any():
         v = num(d[ratio_col]) if ratio_col else (

@@ -99,6 +99,7 @@ def main(n_sites: int = 12):
         신규수혜인구=int(sites["신규수혜인구"].sum()) if len(sites) else 0,
         커버리지개선=round(float(sites["커버리지개선률"].sum()), 1) if len(sites) else 0,
         실데이터지표=f"{n_real}/{len(prov)}", 전체실데이터=all_real,
+        시단위수치=dict(I.CITY_STATS),
     )
     (TAB / "09_요약지표.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")

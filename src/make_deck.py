@@ -274,7 +274,12 @@ def build(team=TEAM, members=MEMBERS):
              (f'{S["지니계수"]}', f'25개 생활권 CBI 지니계수 — 변동계수 {S["변동계수"]}%'),
              (f'{S["최고"].split()[0]} ↔ {S["최저"].split()[0]}',
               f'최상위 {S["최고"].split()[1]}점 ↔ 최하위 {S["최저"].split()[1]}점, 같은 시(市)'),
-             _lowest_stage_fact(cbi)]
+             _lowest_stage_fact(cbi),
+             *([(f'{S["시단위수치"]["빈집률"]:.1f}%',
+                 f'천안시 빈집률 — 빈집 {S["시단위수치"].get("빈집수", 0):,}호 '
+                 f'(KOSIS 2025, 시 단위)')]
+               if S.get("시단위수치", {}).get("빈집률") else [])]
+    facts = facts[:4]
     for i, (big, small) in enumerate(facts):
         y = 3.12 + i * .78
         tb(sl, M + .32, y, 2.55, .38, big, 19, True, ACC)
