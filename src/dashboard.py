@@ -46,8 +46,10 @@ def build(cbi, weights, res, shap_glob, sites, prov, S, gaps, panels):
     _ = ok
     kpi = [("격차 배율", f'{S["격차배율"]}배', f'신도심 {S["신도심_CBI"]} vs 원도심 {S["원도심_CBI"]}'),
            ("지니계수", f'{S["지니계수"]}', "25개 생활권 CBI 불균등도"),
-           ("조기경보 정확도", f'R² {S["모델_R2"]}' if ok else "데이터 대기",
-            f'베이스라인 대비 MAE {S["MAE_개선율"]}%↓' if ok else "다른 연도 인구 파일 필요"),
+           ("조기경보 방향 적중률",
+            (f'{S["방향적중률"]:.0f}%' if S.get("방향적중률") == S.get("방향적중률") else "—")
+            if ok else "데이터 대기",
+            f'베이스라인 대비 MAE {S["MAE_개선율"]:+.1f}%' if ok else "인구 파일 필요"),
            ("추천 투자 수혜", f'{S["신규수혜인구"]:,}명', f'{S["추천입지수"]}개소 · 커버리지 +{S["커버리지개선"]}%p')]
     kpis = "".join(f'<div class="kpi"><span class="lab">{a}</span>'
                    f'<span class="val">{b}</span><span class="sub">{c}</span></div>'

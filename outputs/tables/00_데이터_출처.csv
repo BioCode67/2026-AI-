@@ -1,5 +1,5 @@
 ﻿지표군,상태,출처,비고,행수
-인구,REAL,행안부 주민등록 인구통계(jumin.mois.go.kr),"2026년 단일시점, 25개 생활권, 연령기준 2026년07월",31
+인구,REAL,행안부 주민등록 인구통계(jumin.mois.go.kr),"2021~2026년(5년환산), 25개 생활권, 연령기준 2026년07월",335
 상권,ILLUSTRATIVE,예시 생성(seed=20260832),data/raw/localdata_license*.csv 투입 시 자동 대체,0
 생활SOC,ILLUSTRATIVE,예시 생성(seed=20260833),data/raw/facility_*.csv 투입 시 자동 대체,0
 주거,ILLUSTRATIVE,예시 생성(seed=20260834),data/raw/vacant_house.csv 투입 시 자동 대체,0

@@ -213,14 +213,28 @@ def _parse_population(df):
         if y not in latest_of_year or mo > latest_of_year[y]:
             latest_of_year[y] = mo
 
+    def year_agesum(y, mo, keys):
+        tot = pd.Series(0.0, index=df.index)
+        for c, v in sel.items():
+            if v[0] == y and v[1] == mo and v[3] in keys:
+                tot += num(df[c])
+        return tot
+
     rows = []
     for y, mo in latest_of_year.items():
         cols = [c for c, v in sel.items() if v[0] == y and v[1] == mo and v[3] == "총인구수"]
         if not cols:
             continue
-        g = df.assign(v=num(df[cols[0]])).groupby("zone")["v"].sum()
-        for z, val in g.items():
-            rows.append({"zone": z, "year": y, "pop": val})
+        yv = year_agesum(y, mo, {"20~29세", "30~39세"})
+        ov = (year_agesum(y, mo, {"70~79세", "80~89세", "90~99세", "100세이상"})
+              + 0.5 * year_agesum(y, mo, {"60~69세"}))
+        g = df[["zone"]].assign(pop=num(df[cols[0]]).values,
+                                youth=yv.values, old=ov.values) \
+                        .groupby("zone")[["pop", "youth", "old"]].sum()
+        for z, r in g.iterrows():
+            rows.append({"zone": z, "year": y, "pop": r["pop"],
+                         "youth_ratio_y": r["youth"] / r["pop"] * 100 if r["pop"] else np.nan,
+                         "aging_ratio_y": r["old"] / r["pop"] * 100 if r["pop"] else np.nan})
     panel = pd.DataFrame(rows)
     if panel.empty:
         raise ValueError("총인구수 컬럼을 연·월 기준으로 특정하지 못함")
@@ -232,7 +246,11 @@ def _parse_population(df):
 
 
 def _finish_population(df, panel, age_cols, num, last, stamp=None):
-    panel = panel.groupby(["zone", "year"], as_index=False)["pop"].sum()
+    agg = {"pop": "sum"}
+    for c in ("youth_ratio_y", "aging_ratio_y"):
+        if c in panel.columns:
+            agg[c] = "mean"
+    panel = panel.groupby(["zone", "year"], as_index=False).agg(agg)
     cur = panel[panel.year == last].set_index("zone")["pop"]
 
     avail = sorted(int(y) for y in panel["year"].unique() if int(y) != last)
