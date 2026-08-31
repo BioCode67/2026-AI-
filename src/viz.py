@@ -55,8 +55,22 @@ def fig_cbi_rank(cbi):
     ax.axvline(mean, color=MUTE, ls="--", lw=1.2)
     ax.text(mean + .8, -1.1, f"시 평균 {mean:.0f}", color=MUTE, fontsize=9.5)
     ax.set_xlim(0, 108); ax.set_xlabel("CBI 균형발전지수 (0~100)")
-    ax.set_title("천안시 25개 생활권 균형발전지수(CBI)\n"
-                 "— 신도심 상위 3곳과 농촌·원도심 하위권의 구조적 이중격차", loc="left", pad=14)
+
+    # 부제는 데이터에서 직접 만든다 (수치가 바뀌어도 제목이 사실과 어긋나지 않도록)
+    top = cbi.nlargest(3, "CBI"); bot = cbi.nsmallest(6, "CBI")
+    def only(sub):
+        t = sub["ztype"].unique()
+        return t[0] if len(t) == 1 else None
+    tt, bt = only(top), only(bot)
+    parts = []
+    if tt: parts.append(f"상위 3곳은 모두 {tt}")
+    if bt: parts.append(f"하위 6곳은 모두 {bt}")
+    gap = cbi.groupby("ztype")["CBI"].mean()
+    if {"신도심", "원도심"} <= set(gap.index):
+        parts.append(f"권역 평균 신도심 {gap['신도심']:.0f} ↔ 원도심 {gap['원도심']:.0f}")
+    sub = " · ".join(parts) if parts else f"{len(cbi)}개 생활권 비교"
+    ax.set_title(f"천안시 {len(cbi)}개 생활권 균형발전지수(CBI)\n— {sub}",
+                 loc="left", pad=14)
     ax.legend(handles=_leg(set(d["ztype"])), loc="lower right", frameon=False, ncol=1)
     ax.grid(axis="y", visible=False)
     save(fig, "01_CBI_랭킹.png")
@@ -76,7 +90,7 @@ def fig_domain_heat(cbi):
             v = m.values[i, j]
             ax.text(j, i, f"{v:.0f}", ha="center", va="center", fontsize=12,
                     color="white" if (v < 32 or v > 78) else INK, fontweight="bold")
-    ax.set_title("권역유형별 5대 도메인 점수 — 쇠퇴의 '얼굴'이 다르다", loc="left", pad=12)
+    ax.set_title("권역유형별 5대 도메인 점수 — 같은 '어려움'이라도 사정이 다릅니다", loc="left", pad=12)
     fig.colorbar(im, ax=ax, shrink=.85, label="도메인 점수")
     ax.grid(False)
     fig.text(.01, -.07,
@@ -105,7 +119,7 @@ def fig_gap_trend(panels, cbi):
         ax.axhline(100, color=MUTE, ls=":", lw=1)
         ax.set_title(ttl, loc="left"); ax.set_ylabel(ylab); ax.set_xlabel("연도")
     axes[0].legend(frameon=False, ncol=2, fontsize=9.5)
-    fig.suptitle("격차는 좁혀지지 않고 '벌어지고' 있다 — 권역유형별 궤적 분기",
+    fig.suptitle("권역유형별 궤적 — 시간이 갈수록 서로 다른 방향으로 갈라집니다",
                  x=.012, ha="left", fontsize=15, fontweight="bold", y=1.03)
     save(fig, "03_격차추이.png")
 
@@ -123,14 +137,23 @@ def fig_earlywarn(res, cbi):
     ax.fill_between(lim, lim, 106, color=ACCENT, alpha=.06, zorder=0)
     ax.text(6, 96, "위험 상승 구간\n(3년 내 악화 예상)", color=ACCENT, fontsize=10.5,
             fontweight="bold", va="top")
-    rise = d.nlargest(5, "risk_delta")
+    # 상승폭 상위 라벨 — 가까운 점끼리 겹치지 않도록 세로로 분산 배치
+    rise = d.nlargest(5, "risk_delta").sort_values("risk_pred")
+    placed = []
     for r in rise.itertuples():
-        ax.annotate(f"{r.zone}  +{r.risk_delta:.0f}", (r.risk, r.risk_pred),
-                    textcoords="offset points", xytext=(9, 7), fontsize=10,
-                    fontweight="bold", color=ACCENT)
+        dy = 8
+        while any(abs(r.risk - px) < 14 and abs(r.risk_pred + dy / 8 * 1.6 - py) < 5.5
+                  for px, py in placed):
+            dy += 13
+        ax.annotate(f"{r.zone} +{r.risk_delta:.0f}", (r.risk, r.risk_pred),
+                    textcoords="offset points", xytext=(10, dy), fontsize=10,
+                    fontweight="bold", color=ACCENT,
+                    arrowprops=dict(arrowstyle="-", color=ACCENT, lw=.7,
+                                    shrinkA=0, shrinkB=3, alpha=.55))
+        placed.append((r.risk, r.risk_pred + dy / 8 * 1.6))
     ax.set_xlim(*lim); ax.set_ylim(*lim)
     ax.set_xlabel("현재 쇠퇴위험도 (백분위)"); ax.set_ylabel("3년 후 예측 쇠퇴위험도 (백분위)")
-    ax.set_title("쇠퇴 조기경보 — '아직 안 나빠진 곳'을 미리 찾는다", loc="left", pad=12)
+    ax.set_title("미리 살펴보기 — 지금보다 나빠질 수 있는 곳", loc="left", pad=12)
     ax.legend(frameon=False, loc="lower right", fontsize=9.5)
     save(fig, "04_조기경보.png")
 
@@ -142,7 +165,7 @@ def fig_shap(glob, L, res):
     g = glob.head(10).sort_values()
     names = [INDICATORS.get(i, (None, i))[1] if i in INDICATORS else i for i in g.index]
     axes[0].barh(names, g.values, color="#2E7DD1", height=.7)
-    axes[0].set_title("무엇이 쇠퇴를 예측하는가\n(SHAP 전역 중요도)", loc="left", fontsize=13)
+    axes[0].set_title("어떤 항목이 변화를 설명하는가\n(SHAP 전역 중요도)", loc="left", fontsize=13)
     axes[0].set_xlabel("평균 |SHAP|"); axes[0].grid(axis="y", visible=False)
 
     top = res.nlargest(8, "risk_pred")["zone"].tolist()
@@ -153,11 +176,11 @@ def fig_shap(glob, L, res):
     im = axes[1].imshow(M.values, cmap="RdBu_r", aspect="auto", vmin=-v, vmax=v)
     axes[1].set_xticks(range(M.shape[1]), M.columns, rotation=34, ha="right", fontsize=9.5)
     axes[1].set_yticks(range(M.shape[0]), M.index, fontsize=10.5)
-    axes[1].set_title("위험 상위 생활권의 쇠퇴 기여요인 분해\n(붉을수록 위험을 밀어올린 요인)",
+    axes[1].set_title("위험 상위 생활권의 요인 분해\n(붉을수록 위험을 끌어올린 항목)",
                       loc="left", fontsize=13)
     axes[1].grid(False)
     fig.colorbar(im, ax=axes[1], shrink=.8, label="SHAP 기여도")
-    fig.text(.01, -.04, "→ 같은 '고위험'이라도 원인이 다르므로, 동별 맞춤 처방이 가능하다.",
+    fig.text(.01, -.04, "→ 같은 '고위험'이라도 원인이 달라, 동네마다 필요한 도움이 다를 수 있습니다.",
              fontsize=10.5, color=MUTE)
     save(fig, "05_SHAP_요인분해.png")
 
@@ -180,7 +203,7 @@ def fig_soc_gap(cbi):
                     textcoords="offset points", xytext=(8, 5), color=ACCENT,
                     fontweight="bold")
     ax.text(2, cbi.aging_ratio.max() * 1.02,
-            f"⚠ 정책 최우선 사각지대 — 고령↑ · 생활SOC↓  ({len(risk)}개 생활권)",
+            f"⚠ 먼저 살펴보면 좋을 곳 — 고령↑ · 생활SOC↓  ({len(risk)}개 생활권)",
             color=ACCENT, fontsize=11, fontweight="bold", va="top")
     ax.set_xlabel("생활SOC 접근성 점수 (중력모형, 0~100)")
     ax.set_ylabel("고령(65세+) 인구 비율 (%)")
@@ -208,7 +231,7 @@ def fig_site_map(R, points, cbi):
             ax.annotate(f"{r.순위}", (r.경도, r.위도), fontsize=9,
                         fontweight="bold", color="white", ha="center", va="center", zorder=5)
     ax.set_xlabel("경도"); ax.set_ylabel("위도")
-    ax.set_title("생활SOC 투자 우선순위 입지 — MCLP 탐욕 최적화 결과", loc="left", pad=12)
+    ax.set_title("생활SOC 우선순위 입지 제안 — MCLP 탐욕 최적화 결과", loc="left", pad=12)
     ax.legend(frameon=False, loc="upper left", fontsize=10)
     ax.set_aspect(1 / np.cos(np.radians(36.8)))
     save(fig, "07_투자입지_지도.png")
@@ -233,11 +256,11 @@ def fig_coverage(R):
     ax.set_xlabel("투자 순위 (예산 투입 순서)")
     ax.set_ylabel("개소별 개선(%p)"); ax2.set_ylabel("누적 개선(%p)")
     ax.set_xticks(x)
-    ax.set_title("한정된 예산을 어디부터 쓸 것인가 — 한계효용 체감 곡선", loc="left", pad=12)
+    ax.set_title("한 곳씩 더할 때의 효과 — 한계효용 체감 곡선", loc="left", pad=12)
     h1, l1 = ax.get_legend_handles_labels(); h2, l2 = ax2.get_legend_handles_labels()
     ax.legend(h1 + h2, l1 + l2, frameon=False, loc="center right", fontsize=10)
     tot = R["신규수혜인구"].sum()
-    fig.text(.01, -.06, f"상위 {len(R)}개소만 우선 투자해도 취약수요 커버리지 "
+    fig.text(.01, -.06, f"상위 {len(R)}개소만 먼저 놓아도 취약수요 커버리지 "
                         f"+{R['커버리지개선률'].sum():.1f}%p, 신규 수혜인구 약 {tot:,}명.",
              fontsize=10.5, color=MUTE)
     save(fig, "08_커버리지_곡선.png")
