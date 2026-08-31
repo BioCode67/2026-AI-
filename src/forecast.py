@@ -29,10 +29,17 @@ def build_panel(panels: dict, zone_static: pd.DataFrame) -> pd.DataFrame:
     그 결과 성능이 베이스라인과 구분되지 않는다(실제로 그런 현상을 관측해 이렇게 바꿨다).
     """
     import ingest as _I
-    biz_real = _I.PROVENANCE.get("상권", {}).get("status") in ("REAL", "PARTIAL")
     pop, biz = panels["pop"], panels["biz"]
-    p = (pop.merge(biz, on=["zone", "year"], how="left" if not biz_real else "inner")
+    # 상권 자료가 '시계열'인지 '한 시점'인지 구분한다.
+    # 상가정보는 한 분기 스냅샷이라 연도가 1개뿐인데, 이걸 inner join 하면
+    # 애써 모은 인구 11개년 패널이 그 한 해로 잘려 예측 모드가 후퇴한다.
+    biz_years = int(biz["year"].nunique()) if biz is not None and len(biz) else 0
+    biz_series = biz_years >= 5
+    p = (pop.merge(biz, on=["zone", "year"], how="inner" if biz_series else "left")
             .sort_values(["zone", "year"]))
+    if not biz_series and biz_years:
+        print(f"    · 상권 자료가 {biz_years}개 연도뿐이라 시계열 피처에서 제외하고, "
+              "인구 패널을 그대로 유지합니다")
     g = p.groupby("zone")
 
     p["pop_yoy"]      = g["pop"].pct_change() * 100
@@ -65,13 +72,13 @@ def build_panel(panels: dict, zone_static: pd.DataFrame) -> pd.DataFrame:
     if "youth_ratio_y" in p.columns and p["youth_ratio_y"].notna().any():
         comps.append(z(p["youth_ratio_y"], inv=True));  used.append("청년비율")
     # 상권 축(실데이터일 때만)
-    if biz_real:
+    if biz_series:
         comps += [z(p["biz_3y"], inv=True), z(p["closure_rate"]),
                   z(p["biz_per_1k"], inv=True)]
         used += ["3년 상권증감", "폐업률", "사업체밀도"]
     p["risk"] = (sum(comps) / len(comps)).rank(pct=True) * 100
     p.attrs["risk_components"] = used
-    p.attrs["biz_real"] = biz_real
+    p.attrs["biz_series"] = biz_series
     print(f"    · 쇠퇴위험도 정의에 사용한 축({len(used)}): {', '.join(used)}")
 
     # 목표는 위험도 '수준'이 아니라 '변화량'.
@@ -190,6 +197,8 @@ def fit_evaluate(p: pd.DataFrame, zone_static: pd.DataFrame | None = None):
     feats = real_features([f for f in FEATURES
                            if f in p.columns
                            and pd.to_numeric(p[f], errors="coerce").notna().sum() > 0])
+    if not p.attrs.get("biz_series", True):
+        feats = [f for f in feats if f not in BIZ_FEATURES]   # 한 시점짜리 상권 피처 제외
     globals()["ACTIVE_FEATURES"] = feats
     d = p.dropna(subset=["target"] + feats).copy()
     if len(d) < 60 and zone_static is not None:      # 패널이 얇으면 횡단면 모드

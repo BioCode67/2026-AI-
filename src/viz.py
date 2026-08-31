@@ -249,27 +249,50 @@ def fig_cbi_rank(cbi):
 
 # ── 2. 권역유형 × 도메인 ─────────────────────────────────────
 def fig_domain_heat(cbi):
-    m = cbi.groupby("ztype")[[f"D_{d}" for d in DOMAINS]].mean()
-    m = m.reindex([t for t in TYPE_ORDER if t in m.index]); m.columns = DOMAINS
-    fig, ax = plt.subplots(figsize=(8.8, 4.6))
+    """확보한 도메인만 그린다(미확보 도메인을 nan 칸으로 남기지 않는다)."""
+    cols = [d for d in DOMAINS if f"D_{d}" in cbi.columns
+            and pd.to_numeric(cbi[f"D_{d}"], errors="coerce").notna().any()]
+    if len(cols) < 2:
+        return
+    m = cbi.groupby("ztype")[[f"D_{d}" for d in cols]].mean()
+    m = m.reindex([t for t in TYPE_ORDER if t in m.index]); m.columns = cols
+
+    fig, ax = plt.subplots(figsize=(1.55 * len(cols) + 3.4, 4.6))
     im = ax.imshow(m.values, cmap=SEQ_CMAP, aspect="auto", vmin=0, vmax=100)
-    ax.set_xticks(range(len(DOMAINS)), DOMAINS)
+    ax.set_xticks(range(len(cols)), cols)
     ax.set_yticks(range(len(m)), m.index)
     for i in range(m.shape[0]):
         for j in range(m.shape[1]):
             v = m.values[i, j]
-            ax.text(j, i, f"{v:.0f}", ha="center", va="center", fontsize=13,
-                    color="white" if v > 52 else INK, fontweight="bold")
-    for s in ax.spines.values():
-        s.set_visible(False)
+            ax.text(j, i, "—" if pd.isna(v) else f"{v:.0f}", ha="center", va="center",
+                    fontsize=13, color="white" if (not pd.isna(v) and v > 52) else INK,
+                    fontweight="bold")
+    for sp in ax.spines.values():
+        sp.set_visible(False)
     ax.set_xticks(np.arange(-.5, m.shape[1], 1), minor=True)
     ax.set_yticks(np.arange(-.5, m.shape[0], 1), minor=True)
     ax.grid(which="minor", color=SURFACE, linewidth=2.4)
     ax.tick_params(which="minor", length=0); ax.grid(which="major", visible=False)
     colorbar(fig, im, ax, "도메인 점수", shrink=.86)
-    title(ax, "권역유형별 5대 도메인 점수", "같은 '어려움'이라도 사정이 서로 다릅니다")
-    note(fig, "원도심은 시설을 갖췄으나 상권·인구가 어렵고, 농촌면은 가까운 시설 자체가 부족합니다.\n"
-              "→ 같은 '어려움'이라도 필요한 도움이 서로 다를 수 있습니다.")
+
+    sub = "같은 '어려움'이라도 사정이 서로 다릅니다"
+    if len(cols) < len(DOMAINS):
+        miss = [d for d in DOMAINS if d not in cols]
+        sub += f"  ·  미확보: {', '.join(miss)}"
+    title(ax, "권역유형별 도메인 점수", sub)
+
+    # 하단 해설은 실제 수치에서 만든다(고정 문구가 데이터와 어긋나지 않도록)
+    lines = []
+    for ty in ("원도심", "농촌면"):
+        if ty in m.index:
+            row = m.loc[ty].dropna()
+            if len(row) >= 2:
+                lines.append(f"{ty}: {row.idxmax()} {row.max():.0f}점이 가장 높고 "
+                             f"{row.idxmin()} {row.min():.0f}점이 가장 낮습니다")
+    if lines:
+        note(fig, "\n".join(lines) +
+                  "\n→ 지수가 비슷하게 낮아도 어느 항목이 부족한지가 달라, "
+                  "필요한 도움이 서로 다를 수 있습니다.")
     save(fig, "02_도메인_히트맵.png")
 
 
