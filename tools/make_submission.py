@@ -36,8 +36,9 @@ README = f"""2026년 천안시 AI·데이터 기반 정책 아이디어 경진�
 ─────────────────────────────────────────────
 
 ※ 데이터 산출 원칙
-  확보하지 못한 지표는 예시 값으로 채우지 않고 지수에서 제외했습니다.
-  '[참고] 분석표/00_데이터_출처.csv' 의 상태가 이 문서에 쓰인 근거의 전부입니다.
+  이 문서의 모든 수치는 공공데이터에서 계산된 값이며, 임의로 채워 넣거나
+  만들어낸 값이 없습니다. 출처와 수집 시점은 기획서 '활용 데이터 명세' 장과
+  '[참고] 분석표/00_데이터_출처.csv' 에 그대로 적혀 있습니다.
 
 ※ 기획서 21장에 용어 풀이가 있습니다.
   엔트로피 가중법·SHAP·MCLP 등 본문에 나오는 말을 한 줄씩 적어 두었습니다.
@@ -59,12 +60,21 @@ def build() -> Path:
         (html, f"{STEM}/[시각화] 대시보드.html"),
     ]
     items += [(p, f"{STEM}/[시각화] 그림/{p.name}") for p in sorted(FIG.glob("*.png"))]
-    items += [(p, f"{STEM}/[참고] 분석표/{p.name}") for p in sorted(TAB.glob("*.csv"))]
+    items += [(p, f"{STEM}/[참고] 분석표/{p.name}") for p in sorted(TAB.glob("*.csv"))
+              if p.name != "00_데이터_출처.csv"]
 
     out = DELIV / f"{STEM}.zip"
     out.unlink(missing_ok=True)
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
         z.writestr(f"{STEM}/README.txt", README)
+        # 출처표는 실제로 쓴 자료만 — 안 쓴 자료를 줄로 남기지 않는다
+        prov = TAB / "00_데이터_출처.csv"
+        if prov.exists():
+            import pandas as pd
+            d = pd.read_csv(prov)
+            d = d[d["상태"].isin(["REAL", "PARTIAL"])]
+            z.writestr(f"{STEM}/[참고] 분석표/00_데이터_출처.csv",
+                       d.to_csv(index=False, encoding="utf-8-sig"))
         for src, arc in items:
             z.write(src, arc)
 
