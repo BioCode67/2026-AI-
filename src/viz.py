@@ -135,6 +135,72 @@ def spread(ys, min_gap):
     return out
 
 
+class LabelPlacer:
+    """
+    화면(픽셀) 좌표에서 라벨 상자 겹침을 검사해, 자리가 없으면 건너뛴다.
+    후보 위치를 여러 방향으로 시도하고 모두 막히면 라벨을 포기한다
+    (겹쳐 찍어 읽을 수 없게 만드는 것보다 낫다).
+    """
+    # 가까운 자리부터 시도하고, 막히면 점점 멀리 — 멀어지면 지시선을 함께 그린다
+    NEAR = [(9, 0), (-9, 0), (0, 11), (0, -11), (9, 9), (-9, 9), (9, -9), (-9, -9)]
+    FAR = [(d * cx, d * cy) for d in (22, 34, 48)
+           for cx, cy in ((1, 0), (-1, 0), (0, 1), (0, -1),
+                          (.72, .72), (-.72, .72), (.72, -.72), (-.72, -.72))]
+    LEAD_FROM = len(NEAR)
+
+    @property
+    def OFFSETS(self):
+        return self.NEAR + (self.FAR if self.allow_lead else [])
+
+    def __init__(self, ax, pad=2.0, allow_lead=False):
+        self.ax, self.pad, self.boxes = ax, pad, []
+        self.allow_lead = allow_lead
+
+    def _extent(self, text, size):
+        wide = sum(1 for c in text if ord(c) > 0x2E80)
+        narrow = len(text) - wide
+        dpi = self.ax.figure.dpi / 72
+        return (wide * size + narrow * size * .56) * dpi * 1.10, size * 1.40 * dpi
+
+    def reserve(self, x0, y0, x1, y1):
+        self.boxes.append((x0, y0, x1, y1))
+
+    def reserve_point(self, xd, yd, r_px=9):
+        px, py = self.ax.transData.transform((xd, yd))
+        self.reserve(px - r_px, py - r_px, px + r_px, py + r_px)
+
+    def _free(self, b):
+        # 축 영역을 벗어나면 잘리므로 배치하지 않는다
+        bb = self.ax.get_window_extent()
+        if b[0] < bb.x0 + 1 or b[2] > bb.x1 - 1 or b[1] < bb.y0 + 1 or b[3] > bb.y1 - 1:
+            return False
+        return not any(not (b[2] + self.pad <= o[0] or o[2] + self.pad <= b[0] or
+                            b[3] + self.pad <= o[1] or o[3] + self.pad <= b[1])
+                       for o in self.boxes)
+
+    def place(self, xd, yd, text, size=9, color=INK_2, weight="normal", force=False):
+        px, py = self.ax.transData.transform((xd, yd))
+        w, h = self._extent(text, size)
+        for k, (ox, oy) in enumerate(self.OFFSETS):
+            ax_, ay_ = px + ox, py + oy
+            ha = "left" if ox > 0 else ("right" if ox < 0 else "center")
+            va = "bottom" if oy > 0 else ("top" if oy < 0 else "center")
+            x0 = ax_ if ha == "left" else (ax_ - w if ha == "right" else ax_ - w / 2)
+            y0 = ay_ if va == "bottom" else (ay_ - h if va == "top" else ay_ - h / 2)
+            box = (x0, y0, x0 + w, y0 + h)
+            if self._free(box) or force:
+                self.reserve(box[0], box[1], box[2], box[3])
+                lead = k >= self.LEAD_FROM
+                self.ax.annotate(
+                    text, (xd, yd), textcoords="offset points",
+                    xytext=(ox, oy), ha=ha, va=va, fontsize=size,
+                    color=color, fontweight=weight, zorder=6,
+                    arrowprops=dict(arrowstyle="-", color=AXIS, lw=.75,
+                                    shrinkA=1, shrinkB=4) if lead else None)
+                return True
+        return False
+
+
 def stamp(fig):
     if BADGE["on"]:
         # 하단은 축 라벨·주석이 차지하므로 상단 우측에 둔다
@@ -346,17 +412,24 @@ def fig_soc_gap(cbi):
                    color=TYPE_COLOR[ty], alpha=.9, edgecolor=SURFACE,
                    linewidth=2, zorder=3)
     risk = cbi[(cbi.soc_access < xm) & (cbi.aging_ratio > ym)]
-    for r in risk.itertuples():
-        ax.annotate(r.Index, (r.soc_access, r.aging_ratio), fontsize=T_NOTE,
-                    textcoords="offset points", xytext=(9, 6), color=INK,
-                    fontweight="bold")
-    ax.text(1, cbi.aging_ratio.max() * 1.045,
-            f"먼저 살펴보면 좋을 곳 — 고령 비율 높고 생활SOC 접근성 낮음 ({len(risk)}곳)",
-            color=ST_CRITICAL, fontsize=T_LABEL, fontweight="bold", va="top")
     ax.set_xlabel("생활SOC 접근성 점수 (중력모형, 0~100)")
     ax.set_ylabel("고령(65세+) 인구 비율 (%)")
     ax.set_xlim(-3, 106)
-    title(ax, "생활SOC 사각지대", "원의 크기는 인구 규모")
+    title(ax, "생활SOC 사각지대",
+          f"원의 크기는 인구 규모 · 왼쪽 위 음영은 먼저 살펴보면 좋을 곳"
+          f"(고령 비율 높고 접근성 낮음) {len(risk)}곳")
+    ax.figure.canvas.draw()
+    lp = LabelPlacer(ax, pad=2.6, allow_lead=True)
+    lp.reserve(*ax.transAxes.transform((.72, .70)), *ax.transAxes.transform((1., 1.)))
+    for r in cbi.itertuples():
+        lp.reserve_point(r.soc_access, r.aging_ratio, r_px=np.sqrt(r.pop) * .045 + 5)
+    shown = 0
+    for r in risk.sort_values("pop", ascending=False).itertuples():
+        shown += lp.place(r.soc_access, r.aging_ratio, r.Index, size=T_NOTE,
+                          color=INK, weight="bold")
+    if shown < len(risk):
+        note(fig, f"음영 구간 {len(risk)}곳 중 {shown}곳의 이름을 표시했습니다 "
+                  "(겹치는 이름은 생략).")
     legend(ax, set(cbi["ztype"]), loc="upper right")
     _spines(ax)
     save(fig, "06_SOC_사각지대.png")
@@ -364,30 +437,61 @@ def fig_soc_gap(cbi):
 
 # ── 7. 투자 우선순위 지도 ────────────────────────────────────
 def fig_site_map(R, points, cbi):
-    fig, ax = plt.subplots(figsize=(9.2, 8.8))
-    ax.scatter(points.lon, points.lat, s=5, color=GRID, zorder=1, label="기존 생활SOC")
+    fig, ax = plt.subplots(figsize=(10.6, 8.4))
+    ax.scatter(points.lon, points.lat, s=4.5, color=GRID, zorder=1, label="기존 생활SOC")
     for z, (la, lo) in I.CENTROID.items():
         if z not in cbi.index:
             continue
-        ax.scatter(lo, la, s=np.sqrt(cbi.loc[z, "pop"]) * 1.7,
+        ax.scatter(lo, la, s=np.sqrt(cbi.loc[z, "pop"]) * 1.9,
                    color=TYPE_COLOR[cbi.loc[z, "ztype"]], alpha=.30,
                    edgecolor=SURFACE, linewidth=1.4, zorder=2)
-        ax.annotate(z, (lo, la), fontsize=8.6, color=INK_2, ha="center",
-                    textcoords="offset points", xytext=(0, -13))
     if len(R):
-        ax.scatter(R.경도, R.위도, s=250, marker="*", color=ST_CRITICAL,
-                   edgecolor=SURFACE, linewidth=1.5, zorder=4, label="우선순위 제안 입지")
-        for r in R.itertuples():
-            ax.annotate(f"{r.순위}", (r.경도, r.위도), fontsize=8.6,
-                        fontweight="bold", color="white", ha="center",
-                        va="center", zorder=5)
+        ax.scatter(R.경도, R.위도, s=430, marker="*", color=ST_CRITICAL,
+                   edgecolor=SURFACE, linewidth=1.8, zorder=4,
+                   label="우선순위 제안 입지")
     ax.set_xlabel("경도"); ax.set_ylabel("위도")
-    title(ax, "생활SOC 우선순위 입지 제안", "MCLP 탐욕 최적화 · 생활권당 최대 2개소")
-    lg = ax.legend(loc="upper left", handlelength=1.1)
+    ax.set_aspect(1 / np.cos(np.radians(36.8)))
+    la_all = [c[0] for z, c in I.CENTROID.items() if z in cbi.index]
+    lo_all = [c[1] for z, c in I.CENTROID.items() if z in cbi.index]
+    if len(R):
+        la_all += list(R.위도); lo_all += list(R.경도)
+    py_, px_ = (max(la_all) - min(la_all)) * .085, (max(lo_all) - min(lo_all)) * .085
+    ax.set_xlim(min(lo_all) - px_ * 2.6, max(lo_all) + px_ * 2.2)
+    ax.set_ylim(min(la_all) - py_ * 1.2, max(la_all) + py_ * 2.0)
+    title(ax, "생활SOC 우선순위 입지 제안",
+          "MCLP 탐욕 최적화 · 생활권당 최대 2개소 · 번호는 투자 순서")
+    lg = ax.legend(loc="upper left", handlelength=1.1, borderpad=.7)
     for t in lg.get_texts():
         t.set_color(INK_2)
-    ax.set_aspect(1 / np.cos(np.radians(36.8)))
     _spines(ax)
+
+    # 라벨은 겹치지 않는 것만 — 제안 입지가 있는 생활권을 우선 배치
+    fig.canvas.draw()
+    lp = LabelPlacer(ax, pad=3.4, allow_lead=True)
+    lp.reserve(*ax.transAxes.transform((0, .84)),
+               *ax.transAxes.transform((.34, 1.0)))          # 범례 영역
+    site_zones = set(R["생활권"]) if len(R) else set()
+    if len(R):
+        for r in R.itertuples():
+            lp.reserve_point(r.경도, r.위도, r_px=13)
+            ax.annotate(f"{r.순위}", (r.경도, r.위도), fontsize=8.4,
+                        fontweight="bold", color="white", ha="center",
+                        va="center", zorder=5)
+    order = sorted([z for z in I.CENTROID if z in cbi.index],
+                   key=lambda z: (z not in site_zones, -cbi.loc[z, "pop"]))
+    shown = 0
+    for z in order:
+        la, lo = I.CENTROID[z]
+        lp.reserve_point(lo, la, r_px=np.sqrt(cbi.loc[z, "pop"]) * .05 + 5)
+    for z in order:
+        la, lo = I.CENTROID[z]
+        w = "bold" if z in site_zones else "normal"
+        c = INK if z in site_zones else INK_MUTE
+        shown += lp.place(lo, la, z, size=8.8, color=c, weight=w)
+    if shown < len(order):
+        note(fig, f"생활권 {len(order)}곳 중 {shown}곳의 이름을 표시했습니다 — "
+                  "도심부는 생활권이 밀집해 일부 이름을 생략했습니다. "
+                  "전체 목록은 우선순위표를 참고해 주세요.")
     save(fig, "07_투자입지_지도.png")
 
 
