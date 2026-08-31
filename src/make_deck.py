@@ -265,18 +265,25 @@ def build(team=TEAM, members=MEMBERS):
                if S.get("처방엔진", True) else "생활SOC 위치 자료 필요"), GREEN)]
     for i, (a, b, c, col) in enumerate(cards):
         kpi_card(sl, M + i * 3.06, 2.26, 2.86, 1.40, a, b, c, col, vsize=22)
+    # 본문은 한 줄이 상자 폭(3.33")을 넘지 않도록 20자 안팎으로 끊어 둔다.
+    # 그러지 않으면 자동 줄바꿈이 한 줄씩 더 만들어 상자 아래로 넘친다.
     cols = [("저희가 주목한 것", "한 도시 안에 생긴 생활여건의 차이",
-             "서북부 신도심이 커지는 동안 동남부 원도심과 농촌면은\n"
-             "반대 방향으로 움직였습니다. 같은 천안시민인데 사시는 곳에\n"
-             "따라 일상의 여건이 달라지고 있었습니다."),
+             "서북부 신도심이 커지는 동안\n"
+             "동남부 원도심과 농촌면은\n"
+             "반대 방향으로 움직였습니다.\n"
+             "같은 천안시민인데 사시는 곳에 따라\n"
+             "일상의 여건이 달라지고 있었습니다."),
             ("저희가 준비한 것", "살펴보기 → 미리 알기 → 순서 정하기",
-             "공공데이터 12개 지표로 생활권별 여건을 수치화하고,\n"
-             "어느 동네가 어려워질지 미리 살펴본 뒤,\n"
-             "생활SOC를 어디부터 놓으면 좋을지 순서를 제안드립니다."),
+             f"확보된 공공데이터 {S['지표수']}개 지표로\n"
+             "생활권별 여건을 수치화하고,\n"
+             "어느 동네가 어려워질지 살펴본 뒤,\n"
+             "생활SOC를 어디부터 놓으면\n"
+             "좋을지 순서를 제안드립니다."),
             ("이렇게 쓰이면 좋겠습니다", "담당자분께 드리는 근거 자료",
-             f"생활권별 지수와 유형, 3년 뒤 전망과 그 이유, "
-             f"{S['추천입지수']}개소 우선순위표입니다.\n"
-             f"스크립트 한 줄이면 매년 새 데이터로 다시 만드실 수 있습니다.")]
+             f"생활권별 지수와 유형, 3년 뒤 전망과\n"
+             f"그 이유, {S['추천입지수']}개소 우선순위표입니다.\n"
+             "스크립트 한 줄이면 매년 새 데이터로\n"
+             "다시 만드실 수 있습니다.")]
     for i, (tag, head, body) in enumerate(cols):
         x = M + i * 4.09
         col = [ACC, BLUE, GREEN][i]
@@ -284,7 +291,7 @@ def build(team=TEAM, members=MEMBERS):
         rect(sl, x, 3.96, 3.89, .075, col, radius=False)
         tb(sl, x + .28, 4.20, 3.3, .25, tag, 11, True, col)
         tb(sl, x + .28, 4.50, 3.35, .56, head, 15, True, INK, line=1.25)
-        tb(sl, x + .28, 5.24, 3.33, 1.24, body, 11, False, MUTE, line=1.55)
+        tb(sl, x + .28, 5.16, 3.33, 1.36, body, 11, False, MUTE, line=1.48)
     footer(sl, n)
 
     # ══ 3. 문제 정의 ═════════════════════════════════════════
@@ -357,7 +364,7 @@ def build(team=TEAM, members=MEMBERS):
     sl = slide(prs, "ARCHITECTURE", "3-엔진 파이프라인",
                "공공데이터를 넣는 것부터 정책 자료가 나오기까지, 스크립트 하나로 이어집니다.")
     stages = [("INPUT", "공공데이터", "주민등록 인구\nLOCALDATA 인허가\n상가정보·생활SOC\n빈집·버스정류장", MUTE),
-              ("① DIAGNOSE", "진단 엔진", "엔트로피 가중 CBI\nK-means 유형화\n5대 도메인 분해", ACC),
+              ("① DIAGNOSE", "진단 엔진", "엔트로피 가중 CBI\nK-means 유형화\n도메인별 분해", ACC),
               ("② PREDICT", "예측 엔진", "LightGBM 회귀\nLeave-One-Zone-Out CV\nSHAP 요인분해", BLUE),
               ("③ PRESCRIBE", "처방 엔진", "MCLP 탐욕 최적화\n형평성 제약\n한계효용 곡선", GREEN),
               ("OUTPUT", "정책 산출물", "생활권 CBI 지도\n3년 후 위험 경보\n투자 우선순위표", INK)]
@@ -635,7 +642,9 @@ def _part2(prs, S, cbi, ew, sites, prov, n):
     if len(e):
         e["risk"] = e["risk"].round(0).astype(int)
         e["risk_pred"] = e["risk_pred"].round(0).astype(int)
-        e["risk_delta"] = e["risk_delta"].round(0).astype(int).map(lambda v: f"{v:+d}")
+        # 예측값은 0~100 으로 잘리므로, 표에 적히는 '변화'는 보이는 두 값의 차로 맞춘다
+        # (그러지 않으면 100 → 100 인데 변화 +7 처럼 읽힌다)
+        e["risk_delta"] = (e["risk_pred"] - e["risk"]).map(lambda v: f"{v:+d}")
         e.columns = ["생활권", "현재", "3년 후", "변화"]
         tb(sl, M + 7.0, 2.34, 4.9, .28, "3년 뒤 위험 상위 6개 생활권", 13, True, INK)
         tablette(sl, e, M + 7.0, 2.70, 4.9, colw=[1.9, 1.0, 1.0, 1.0],
@@ -921,7 +930,7 @@ def _slide_tail(prs, S, cbi, ew, sites, prov, n):
     n += 1
     sl = slide(prs, "INTEGRITY", "재현성과 데이터 윤리", None)
     boxes = [("재현성", GREEN, [
-        "전 과정을 공개 스크립트 한 줄로 실행하실 수 있습니다 (python3 src/run_all.py)",
+        "공개 스크립트 한 줄(python3 src/run_all.py)로 전 과정을 재현합니다",
         "난수 시드를 고정해 군집·모델 결과가 실행할 때마다 같습니다",
         "그림 8종·분석표 9종·대시보드가 같은 실행에서 함께 만들어집니다",
         "지표 정의·가중치·모델 설정이 전부 코드에 적혀 있습니다"]),
@@ -941,19 +950,19 @@ def _slide_tail(prs, S, cbi, ew, sites, prov, n):
     synth2 = "ILLUSTRATIVE" in set(prov["상태"]) if len(prov) else False
     box_col = _hex("#FDF3F2") if synth2 else _hex("#EFF7F3")
     tb_col = ALERT if synth2 else GREEN
-    rect(sl, M, 5.22, W - 2 * M, 1.30, box_col)
-    tb(sl, M + .32, 5.42, 11.4, .30, "확보한 데이터만으로 산출합니다", 13.5, True, tb_col)
-    tb(sl, M + .32, 5.76, 11.4, .48,
+    rect(sl, M, 5.16, W - 2 * M, 1.34, box_col)
+    tb(sl, M + .32, 5.34, 11.4, .28, "확보한 데이터만으로 산출합니다", 13.5, True, tb_col)
+    tb(sl, M + .32, 5.66, 11.4, .50,
        "확보하지 못한 지표는 임의값이나 예시 값으로 채우지 않고 지수에서 제외합니다.\n"
-       "파이프라인이 매 실행마다 지표별 상태를 판정해 로그·대시보드·본 기획서에 함께 표기하므로,\n"
+       "매 실행마다 지표별 상태를 판정해 로그·대시보드·기획서에 함께 표기하므로, "
        "이 문서의 어떤 수치도 채워 넣은 값이 아닙니다.",
        11.5, False, INK, line=1.45)
     miss2 = prov[prov["상태"] == "MISSING"]["지표군"].tolist()
-    tb(sl, M + .32, 6.62, 11.4, .28,
+    tb(sl, M + .32, 6.20, 11.4, .26,
        f"현재 상태 — 실데이터 지표군 {S['실데이터지표']}"
        + (f"  ·  {', '.join(miss2)}은 미확보로 지수에서 제외" if miss2
           else "  ·  전 지표군 확보 완료"),
-       11.5, True, tb_col)
+       11, True, tb_col)
     footer(sl, n)
     return n
 

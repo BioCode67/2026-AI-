@@ -5,7 +5,7 @@ import base64, sys
 from pathlib import Path
 import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from config import FIG, DELIV, DOMAINS, TYPE_COLOR
+from config import FIG, DELIV, DOMAINS, TYPE_COLOR, INDICATORS
 
 TITLE = "천안 균형발전 나침반(CBC)"
 SUB = "천안시민 누구나 걸어서 닿는 생활환경을 바라며, 공공데이터로 살펴본 이야기"
@@ -70,39 +70,53 @@ def build(cbi, weights, res, shap_glob, sites, prov, S, gaps, panels):
                    f'<span class="val">{b}</span><span class="sub">{c}</span></div>'
                    for a, b, c in kpi)
 
+    # 지수에 실제로 쓰인 지표·도메인 수는 데이터에서 유도한다(하드코딩 금지)
+    n_ind = len(weights)
+    used_doms = list(dict.fromkeys(INDICATORS[i][0] for i in weights.index))
+    n_dom = len(used_doms)
+    dom_txt = ' · '.join(used_doms)
+
     rank = cbi.reset_index()[["zone", "gu", "ztype", "CBI", "stage"]].copy()
     rank["CBI"] = rank["CBI"].round(1)
     rank.columns = ["생활권", "자치구", "권역유형", "CBI", "쇠퇴단계"]
 
     ok = S.get("예측엔진", True)
     if ok and res is not None and len(res):
-        ew = res.copy().round(1)
-        ew.columns = ["생활권", "현재 위험도", "3년 후 예측", "변화"]
-        ew = ew.head(10)
+        ew = res.copy()
+        # risk_pred 는 0~100 으로 잘리는데 risk_delta 는 원본이라
+        # 100.0 → 100.0 인데 변화 +6.8 처럼 보일 수 있다. 보이는 값끼리 맞춘다.
+        ew["risk_delta"] = ew["risk_pred"] - ew["risk"]
+        ew = ew.round(1).head(10)
+        ew.columns = ["생활권", "현재 위험도", "3년 후 예측", "변화(예측−현재)"]
     else:
         ew = pd.DataFrame({"안내": [S.get("예측미실행사유", "예측 엔진 미실행")]})
 
     w = weights.rename("가중치").to_frame()
-    from config import INDICATORS
     w["도메인"] = [INDICATORS[i][0] for i in w.index]
     w["지표"] = [INDICATORS[i][1] for i in w.index]
+    w = w.sort_values("가중치", ascending=False)          # 숫자 상태에서 정렬
     w["가중치"] = (w["가중치"] * 100).round(1).astype(str) + "%"
-    w = w.sort_values("가중치", ascending=False)[["도메인", "지표", "가중치"]]
+    w = w[["도메인", "지표", "가중치"]]
 
     cols = ["순위", "생활권", "시설유형", "신규수혜인구", "커버리지개선률", "빈집률", "CBI"]
     st = sites[[c for c in cols if c in sites.columns]].copy() if len(sites) else pd.DataFrame()
     if len(st):
         st["신규수혜인구"] = st["신규수혜인구"].map("{:,}".format)
+        # 미확보 지표에서 온 열은 nan 으로 채워져 있다 → 비워두느니 열 자체를 뺀다
+        st = st.dropna(axis=1, how="all")
+        st = st.rename(columns={"신규수혜인구": "신규 수혜인구(명)",
+                                "커버리지개선률": "커버리지 개선(%p)",
+                                "빈집률": "빈집률(%)"})
 
     html = f"""<title>{TITLE}</title>
 <style>
 :root{{--bg:#F7F8FA;--card:#FFFFFF;--ink:#151C26;--mute:#5D6874;--line:#E3E7ED;
- --accent:#D64545;--blue:#2E7DD1;--green:#3E9B7C;--amber:#C98A1E;--shadow:0 1px 3px rgba(20,30,45,.07),0 8px 24px rgba(20,30,45,.05)}}
+ --accent:#D64545;--blue:#2E7DD1;--green:#3E9B7C;--amber:#C98A1E;--warn:#9A6A05;--shadow:0 1px 3px rgba(20,30,45,.07),0 8px 24px rgba(20,30,45,.05)}}
 @media (prefers-color-scheme:dark){{:root:not([data-theme="light"]){{--bg:#0F1419;--card:#171D25;--ink:#E9EDF2;
  --mute:#98A3B0;--line:#252D38;--accent:#F0736F;--blue:#6BA9E8;--green:#5FBF9C;--amber:#E0AB4A;
- --shadow:0 1px 3px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.3)}}}}
+ --warn:#E0AB4A;--shadow:0 1px 3px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.3)}}}}
 :root[data-theme="dark"]{{--bg:#0F1419;--card:#171D25;--ink:#E9EDF2;--mute:#98A3B0;--line:#252D38;
- --accent:#F0736F;--blue:#6BA9E8;--green:#5FBF9C;--amber:#E0AB4A;
+ --accent:#F0736F;--blue:#6BA9E8;--green:#5FBF9C;--amber:#E0AB4A;--warn:#E0AB4A;
  --shadow:0 1px 3px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.3)}}
 *{{box-sizing:border-box}}
 body{{background:var(--bg);color:var(--ink);margin:0;
@@ -143,6 +157,8 @@ td{{padding:8px 12px;border-bottom:1px solid var(--line);white-space:nowrap;
 tbody tr:hover{{background:rgba(125,135,150,.055)}}
 .two{{display:grid;grid-template-columns:1fr 1fr;gap:26px}}
 @media(max-width:760px){{.two{{grid-template-columns:1fr}}}}
+.foot{{color:var(--mute);font-size:12.8px;line-height:1.65;margin:10px 2px 0}}
+.foot b{{color:var(--ink)}}
 .note{{background:rgba(42,120,214,.075);border-left:3px solid var(--blue);
  padding:13px 17px;border-radius:8px;font-size:13.6px;line-height:1.7;margin:16px 0}}
 footer{{color:var(--mute);font-size:12.6px;margin-top:38px;padding-top:22px;border-top:1px solid var(--line)}}
@@ -159,16 +175,19 @@ footer{{color:var(--mute);font-size:12.6px;margin-top:38px;padding-top:22px;bord
 
 <section>
   <h2><span class="n">01</span>살펴보기 — 지금 어느 정도 차이가 있을까요</h2>
-  <p class="lede">25개 생활권 × 12개 지표를 <b>엔트로피 가중법</b>으로 합쳐 지수를 만들었습니다.
+  <p class="lede">25개 생활권 × 확보된 {n_ind}개 지표({dom_txt})를 <b>엔트로피 가중법</b>으로 합쳐 지수를 만들었습니다.
   가중치를 저희가 임의로 정하지 않고 데이터에서 유도했기 때문에, 누가 다시 돌려도 같은 값이 나옵니다.</p>
   {img("01_CBI_랭킹.png", "생활권별 CBI — 색상은 권역유형")}
-  {img("02_도메인_히트맵.png", "권역유형 × 5대 도메인 — 낙후의 원인이 권역마다 다르다")}
+  {img("02_도메인_히트맵.png", f"권역유형 × {n_dom}개 도메인 — 어려움의 사정이 권역마다 다르다")}
   <div class="note"><b>이런 점이 보였습니다.</b> 원도심과 농촌면은 지수가 모두 낮게 나왔지만 <b>사정이 서로 달랐습니다</b>.
   원도심은 시설이 이미 갖춰져 있으나 상권과 인구가 어려웠고, 농촌면은 가까운 시설 자체가 부족했습니다.
   같은 '어려움'이라도 필요한 도움이 다를 수 있다는 뜻으로 읽었습니다. 어떤 사업이 맞을지는 현장을 아시는 분들의 판단이 필요한 부분입니다.</div>
   {img("03_격차추이.png", "권역유형별 인구·사업체 궤적")}
   <h3>생활권별 CBI 순위</h3>
   {table(rank, maxrows=25)}
+  <p class="foot">쇠퇴단계는 CBI 점수를 자른 것이 아니라, {n_ind}개 지표의 <b>패턴</b>을 k-평균 군집으로 묶어
+  붙인 이름입니다. 그래서 점수 순서와 단계가 꼭 일치하지는 않습니다 — 총점은 조금 낮아도 지표가 고르면
+  더 나은 단계로, 총점은 높아도 특정 지표가 크게 처지면 아래 단계로 묶일 수 있습니다.</p>
 </section>
 
 <section>
@@ -211,7 +230,7 @@ footer{{color:var(--mute);font-size:12.6px;margin-top:38px;padding-top:22px;bord
 
 <footer>
   2026년 천안시 AI·데이터 기반 정책 아이디어 경진대회 출품작 · 지역균형발전 부문 · AI 모델 개발<br>
-  분석 단위 25개 생활권 · 지표 12종 · 군집 k={S['군집수']}(실루엣 {S['실루엣']}) ·
+  분석 단위 25개 생활권 · 지수에 쓰인 지표 {n_ind}종({n_dom}개 도메인) · 군집 k={S['군집수']}(실루엣 {S['실루엣']}) ·
   조기경보 LOZO-CV R² {S['모델_R2']} · 재현 스크립트 <code>src/run_all.py</code>
 </footer>
 </div>"""

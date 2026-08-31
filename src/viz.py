@@ -181,8 +181,9 @@ class LabelPlacer:
     def place(self, xd, yd, text, size=9, color=INK_2, weight="normal", force=False):
         px, py = self.ax.transData.transform((xd, yd))
         w, h = self._extent(text, size)
+        k_ = self.ax.figure.dpi / 72       # 오프셋은 point → 픽셀로 환산해야 맞다
         for k, (ox, oy) in enumerate(self.OFFSETS):
-            ax_, ay_ = px + ox, py + oy
+            ax_, ay_ = px + ox * k_, py + oy * k_
             ha = "left" if ox > 0 else ("right" if ox < 0 else "center")
             va = "bottom" if oy > 0 else ("top" if oy < 0 else "center")
             x0 = ax_ if ha == "left" else (ax_ - w if ha == "right" else ax_ - w / 2)
@@ -366,20 +367,22 @@ def fig_earlywarn(res, cbi):
                    edgecolor=SURFACE, linewidth=2, zorder=3)
     ax.text(4, 101, "위쪽 — 지금보다 나빠질 것으로 본 구간", color=ST_CRITICAL,
             fontsize=T_LABEL, fontweight="bold", va="top")
-    rise = d.nlargest(5, "risk_delta").sort_values("risk_pred")
-    placed = []
-    for r in rise.itertuples():
-        dy = 10
-        while any(abs(r.risk - px) < 15 and abs(r.risk_pred + dy * .2 - py) < 6
-                  for px, py in placed):
-            dy += 14
-        ax.annotate(f"{r.zone} +{r.risk_delta:.0f}", (r.risk, r.risk_pred),
-                    textcoords="offset points", xytext=(11, dy), fontsize=T_LABEL,
-                    fontweight="bold", color=INK,
-                    arrowprops=dict(arrowstyle="-", color=AXIS, lw=.9,
-                                    shrinkA=0, shrinkB=5))
-        placed.append((r.risk, r.risk_pred + dy * .2))
     ax.set_xlim(*lim); ax.set_ylim(*lim)
+
+    # 라벨은 픽셀 좌표에서 겹침을 검사해 배치한다.
+    # (데이터 좌표로 어림잡으면 아래 그림처럼 라벨이 점 위에 얹힌다)
+    ax.figure.canvas.draw()
+    lp = LabelPlacer(ax, pad=3.0, allow_lead=True)
+    lp.reserve(*ax.transAxes.transform((.62, .0)),
+               *ax.transAxes.transform((1., .30)))            # 범례 영역
+    lp.reserve(*ax.transAxes.transform((.0, .90)),
+               *ax.transAxes.transform((.62, 1.)))            # 상단 안내문
+    for r in d.itertuples():                                  # 모든 점을 먼저 확보
+        lp.reserve_point(r.risk, r.risk_pred, r_px=8)
+    rise = d.nlargest(5, "risk_delta").sort_values("risk_pred", ascending=False)
+    for r in rise.itertuples():
+        lp.place(r.risk, r.risk_pred, f"{r.zone} {r.risk_delta:+.0f}",
+                 size=T_LABEL, color=INK, weight="bold")
     ax.set_xlabel("현재 쇠퇴위험도 (백분위)"); ax.set_ylabel("3년 후 예측 위험도 (백분위)")
     title(ax, "미리 살펴보기 — 지금보다 나빠질 수 있는 곳",
           "대각선 위쪽에 있을수록 앞으로 살펴볼 필요가 큽니다")
@@ -499,7 +502,7 @@ def fig_site_map(R, points, cbi):
     ax.set_xlim(min(lo_all) - px_ * 2.6, max(lo_all) + px_ * 2.2)
     ax.set_ylim(min(la_all) - py_ * 1.2, max(la_all) + py_ * 2.0)
     title(ax, "생활SOC 우선순위 입지 제안",
-          "MCLP 탐욕 최적화 · 생활권당 최대 2개소 · 번호는 투자 순서")
+          "MCLP 탐욕 최적화 · 생활권당 최대 2개소 · 빨간 번호는 투자 순서")
     lg = ax.legend(loc="upper left", handlelength=1.1, borderpad=.7)
     for t in lg.get_texts():
         t.set_color(INK_2)
@@ -514,9 +517,14 @@ def fig_site_map(R, points, cbi):
     if len(R):
         for r in R.itertuples():
             lp.reserve_point(r.경도, r.위도, r_px=13)
-            ax.annotate(f"{r.순위}", (r.경도, r.위도), fontsize=8.4,
-                        fontweight="bold", color="white", ha="center",
-                        va="center", zorder=5)
+        # 도심부는 제안 입지가 서로 붙어 있어 별마다 번호를 얹으면 읽히지 않는다.
+        # 생활권당 최대 2개소이므로 생활권 단위로 "1·2" 처럼 한 번만 붙인다.
+        for z, g in R.groupby("생활권", sort=False):
+            lab = "·".join(str(v) for v in sorted(g["순위"]))
+            lo, la = g["경도"].mean(), g["위도"].mean()
+            if not lp.place(lo, la, lab, size=9.8, color=ST_CRITICAL, weight="bold"):
+                lp.place(lo, la, lab, size=9.8, color=ST_CRITICAL,
+                         weight="bold", force=True)
     order = sorted([z for z in I.CENTROID if z in cbi.index],
                    key=lambda z: (z not in site_zones, -cbi.loc[z, "pop"]))
     shown = 0
