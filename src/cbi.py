@@ -139,15 +139,26 @@ def index_label(cbi: pd.DataFrame) -> tuple[str, str]:
 
 
 def gap_stats(cbi: pd.DataFrame) -> dict:
-    """격차 요약 통계 (기획서 핵심 수치)"""
-    g = cbi.groupby("ztype")["CBI"].mean()
+    """
+    격차 요약 통계.
+    '신도심 대 원도심'을 미리 정해 두지 않는다 — 실데이터에서 가장 큰 격차는
+    도심 내부가 아니라 도농 간에서 나타났고(신도심 57.7 ↔ 농촌면 11.1),
+    가설이 아니라 데이터가 헤드라인을 정해야 하기 때문이다.
+    """
+    g = cbi.groupby("ztype")["CBI"].mean().sort_values(ascending=False)
+    hi_t, lo_t = g.index[0], g.index[-1]
+    hi, lo = float(g.iloc[0]), float(g.iloc[-1])
     new, old = g.get("신도심", np.nan), g.get("원도심", np.nan)
     return dict(
+        최대격차_상위유형=hi_t, 최대격차_하위유형=lo_t,
+        최대격차_상위값=hi, 최대격차_하위값=lo,
+        최대배율=hi / lo if lo else np.nan,
         신도심평균=new, 원도심평균=old, 격차=new - old, 배율=new / old if old else np.nan,
         최고=cbi["CBI"].max(), 최저=cbi["CBI"].min(),
         최고동=cbi["CBI"].idxmax(), 최저동=cbi["CBI"].idxmin(),
         지니=_gini(cbi["CBI"].values),
         변동계수=cbi["CBI"].std() / cbi["CBI"].mean() * 100,
+        권역평균=g.round(1).to_dict(),
     )
 
 

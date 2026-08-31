@@ -54,8 +54,10 @@ def build_panel(panels: dict, zone_static: pd.DataFrame) -> pd.DataFrame:
     if "aging_ratio_y" in p.columns:
         p["aging_trend"] = g["aging_ratio_y"].diff(3) if False else \
             p.groupby("zone")["aging_ratio_y"].diff(3)
-    st = zone_static[["zone", "soc_access", "soc_per_capita", "vacancy_rate",
-                      "old_building", "transit_density", "pop_density"]]
+    keep = ["zone", "soc_access", "soc_per_capita", "vacancy_rate",
+            "old_building", "transit_density", "pop_density", "biz_per_km2",
+            "biz_diversity"]
+    st = zone_static[[c for c in keep if c in zone_static.columns]]
     p = p.merge(st, on="zone", how="left")
 
     # ── 연도별 쇠퇴위험도 R_t (0~100, 클수록 위험) ──────────────
@@ -96,14 +98,16 @@ POP_FEATURES = ["pop", "pop_yoy", "pop_3y", "risk", "aging_ratio_y", "youth_rati
                 "aging_trend", "pop_density"]
 BIZ_FEATURES = ["active", "biz_yoy", "biz_3y", "net_entry", "closure_rate",
                 "open_rate", "biz_per_1k"]
+STATIC_BIZ = ["biz_per_km2", "biz_diversity"]
 STATIC_FEATURES = ["soc_access", "soc_per_capita", "vacancy_rate",
-                   "old_building", "transit_density"]
+                   "old_building", "transit_density"] + STATIC_BIZ
 FEATURES = POP_FEATURES + BIZ_FEATURES + STATIC_FEATURES
 
 # 피처 → 출처 지표군. 해당 지표군이 실데이터가 아니면 학습에서 제외한다
 # (예시 값을 피처로 넣으면 모델이 잡음을 학습해 일반화가 무너진다).
 FEATURE_SOURCE = ({f: "인구" for f in POP_FEATURES} |
                   {f: "상권" for f in BIZ_FEATURES} |
+                  {f: "상권" for f in STATIC_BIZ} |
                   {"soc_access": "생활SOC", "soc_per_capita": "생활SOC",
                    "vacancy_rate": "주거", "old_building": "주거",
                    "transit_density": "이동성"})
@@ -130,7 +134,7 @@ PARAMS = dict(objective="regression", n_estimators=300, learning_rate=0.04,
 # 구조지표만으로 돌리는 횡단면 모드용 피처 (시계열 불필요)
 XSEC_FEATURES = ["aging_ratio", "youth_ratio", "soc_access", "soc_per_capita",
                  "vacancy_rate", "old_building", "transit_density", "pop_density",
-                 "biz_density", "biz_diversity"]
+                 "biz_per_km2", "biz_diversity"]
 
 XSEC_PARAMS = dict(objective="regression", n_estimators=180, learning_rate=0.05,
                    num_leaves=3, min_child_samples=3, subsample=0.8, subsample_freq=1,

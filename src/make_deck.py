@@ -227,7 +227,8 @@ def build(team=TEAM, members=MEMBERS):
     sl = slide(prs, "EXECUTIVE SUMMARY", "한 장으로 보는 제안",
                "천안시민의 생활여건 차이를 데이터로 살펴보고, 도움이 조금 더 필요한 곳을 "
                "먼저 찾아보고자 준비했습니다.")
-    cards = [("격차 배율", f'{S["격차배율"]}배', f'신도심 {S["신도심_CBI"]} vs 원도심 {S["원도심_CBI"]}', ACC),
+    cards = [("가장 큰 격차", f'{S["격차배율"]}배',
+              f'{S.get("격차상위", "")} ↔ {S.get("격차하위", "")}', ACC),
              ("불균등도(지니)", f'{S["지니계수"]}', f'{S["생활권수"]}개 생활권 CBI 기준', VIOLET),
              ("조기경보 방향 적중률",
               (f'{S["방향적중률"]:.0f}%' if S.get("방향적중률") == S.get("방향적중률")
@@ -270,7 +271,8 @@ def build(team=TEAM, members=MEMBERS):
     hi = cbi.nlargest(3, "CBI")[["zone", "CBI"]]
     rect(sl, M, 2.42, 6.0, 3.9, WHITE, LINE)
     tb(sl, M + .32, 2.66, 5.4, .3, "공공데이터로 확인한 차이", 14.5, True, INK)
-    facts = [(f'{S["격차배율"]}배', f'신도심 평균 CBI {S["신도심_CBI"]} vs 원도심 평균 {S["원도심_CBI"]}'),
+    facts = [(f'{S["격차배율"]}배',
+              f'{S.get("격차상위", "")} ↔ {S.get("격차하위", "")} (권역유형 평균 CBI)'),
              (f'{S["지니계수"]}', f'25개 생활권 CBI 지니계수 — 변동계수 {S["변동계수"]}%'),
              (f'{S["최고"].split()[0]} ↔ {S["최저"].split()[0]}',
               f'최상위 {S["최고"].split()[1]}점 ↔ 최하위 {S["최저"].split()[1]}점, 같은 시(市)'),
@@ -409,6 +411,18 @@ def build(team=TEAM, members=MEMBERS):
     return prs, S, cbi, ew, sites, prov, n
 
 
+def _domain_line(cbi, ztype):
+    """해당 권역의 도메인 점수를 실제 값으로 한 줄 요약(고정 문구가 어긋나지 않도록)."""
+    from config import DOMAINS
+    cols = [d for d in DOMAINS if f"D_{d}" in cbi.columns]
+    row = cbi[cbi.ztype == ztype][[f"D_{d}" for d in cols]].mean()
+    row.index = cols
+    row = row.dropna()
+    if row.empty:
+        return ""
+    return " · ".join(f"{k} {v:.0f}" for k, v in row.sort_values(ascending=False).items())
+
+
 def _lowest_stage_fact(cbi):
     """군집 수에 따라 라벨이 달라지므로, 실제로 존재하는 최하위 유형을 집계한다."""
     if "stage" not in cbi.columns or not len(cbi):
@@ -476,20 +490,23 @@ def _part2(prs, S, cbi, ew, sites, prov, n):
     # ══ 10. 핵심 인사이트 ════════════════════════════════════
     n += 1
     sl = slide(prs, "FINDING · 02", "같은 '어려움'이라도 필요한 도움이 다릅니다",
-               "원도심과 농촌면은 지수가 모두 낮게 나왔습니다. 그런데 항목을 나눠 보니 사정이 서로 달랐습니다.")
+               "항목을 나눠 보니 원도심과 농촌면의 사정이 서로 달랐습니다. "
+               "원도심은 시설과 상권을 갖췄는데 사람이 빠지고, 농촌면은 전반이 부족합니다.")
     fit(sl, "02_도메인_히트맵.png", M, 2.36, 7.35, 3.5)
     x = M + 7.65
     rect(sl, x, 2.36, 4.2, 1.72, _hex("#EFF5FD"))
     tb(sl, x + .26, 2.58, 3.7, .28, "원도심", 13.5, True, ACC)
     tb(sl, x + .26, 2.92, 3.7, 1.05,
-       "시설은 이미 갖춰져 있습니다.\n어려운 쪽은 상권과 인구였습니다.\n"
-       "→ 새로 짓기보다, 비어 있는 공간을 다시 쓰는 방향이 맞지 않을까 합니다",
+       _domain_line(cbi, "원도심") + "\n"
+       "→ 부족한 것은 시설이 아니라 사람입니다.\n"
+       "   새로 짓기보다 비어 있는 공간을 다시 쓰는 방향이 맞지 않을까 합니다",
        11, False, INK, line=1.5)
     rect(sl, x, 4.22, 4.2, 1.72, _hex("#F1EFF9"))
     tb(sl, x + .26, 4.44, 3.7, .28, "농촌면 · 읍지역", 13.5, True, VIOLET)
     tb(sl, x + .26, 4.78, 3.7, 1.05,
-       "가까운 시설 자체가 부족합니다.\n대중교통 여건도 넉넉하지 않습니다.\n"
-       "→ 거점 복합시설과 이동 지원을 함께 보시면 좋겠습니다",
+       _domain_line(cbi, "농촌면") + "\n"
+       "→ 특정 항목이 아니라 전반이 부족합니다.\n"
+       "   거점 복합시설과 이동 지원을 함께 보시면 좋겠습니다",
        11, False, INK, line=1.5)
     rect(sl, M, 6.08, W - 2 * M, .82, LIGHT)
     tb(sl, M + .3, 6.28, 11.5, .5,

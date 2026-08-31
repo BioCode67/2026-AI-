@@ -56,8 +56,9 @@ def build_zone_table() -> tuple[pd.DataFrame, dict]:
     df["soc_total"]      = df[soc_cols].sum(axis=1)
     df["soc_per_capita"] = df["soc_total"] / df["pop"] * 1000
     df["soc_access"]     = df["zone"].map(soc_accessibility(points))
-    df["biz_density"]    = df["active_biz"] / df["pop"] * 1000
     df["area_km2"]       = df["zone"].map(I.AREA_KM2)
+    df["biz_per_km2"]    = df["active_biz"] / df["area_km2"]
+    df["biz_density"]    = df["active_biz"] / df["pop"] * 1000   # 참고용(지수 미사용)
     df["pop_density"]    = df["pop"] / df["area_km2"]
 
     for k in INDICATORS:                       # 누락 지표는 NaN 컬럼으로 두고 CBI에서 자동 제외
