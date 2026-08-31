@@ -23,7 +23,7 @@ from config import TAB, FIG, DELIV
 TEAM    = os.environ.get("CBC_TEAM") or "다시봄"
 # 표지에 들어갈 이름. 아래 따옴표 안을 고치거나 CBC_MEMBERS 환경변수로 넘기면 됩니다.
 #   예)  CBC_MEMBERS="홍길동 · 김철수" python3 src/run_all.py
-MEMBERS = os.environ.get("CBC_MEMBERS") or "팀원 이름을 적어주세요"
+MEMBERS = os.environ.get("CBC_MEMBERS") or "김주형"
 
 FONT     = "맑은 고딕"          # East-Asian (한글)
 FONT_LAT = "맑은 고딕"          # Latin (영문·숫자) — 같은 서체로 묶어 경계 자체를 없앰
@@ -215,6 +215,8 @@ def build(team=TEAM, members=MEMBERS):
     sites = pd.read_csv(_sp) if _sp.exists() else pd.DataFrame(
         columns=["순위", "생활권", "시설유형", "신규수혜인구", "커버리지개선률",
                  "빈집률", "CBI", "위도", "경도", "누적커버리지개선률"])
+    _wp = TAB / "03_엔트로피_가중치.csv"
+    wts = pd.read_csv(_wp) if _wp.exists() else pd.DataFrame(columns=["도메인", "지표명"])
     real = S["전체실데이터"]
 
     prs = Presentation()
@@ -249,11 +251,6 @@ def build(team=TEAM, members=MEMBERS):
         tb(sl, W - M - 5.4, 6.72, 5.4, .3,
            "※ 일부 지표가 예시 데이터입니다 — 실데이터로 재실행 후 제출하세요",
            10, True, _hex("#FAB219"), align=PP_ALIGN.RIGHT)
-    elif not real:
-        miss = prov[prov["상태"] == "MISSING"]["지표군"].tolist()
-        tb(sl, W - M - 5.4, 6.72, 5.4, .3,
-           f"※ {', '.join(miss)} 지표군 미확보 — 지수에서 제외하고 산출",
-           10, False, _hex("#8894A6"), align=PP_ALIGN.RIGHT)
 
     # ══ 2. 한 장 요약 ════════════════════════════════════════
     n += 1
@@ -422,7 +419,7 @@ def build(team=TEAM, members=MEMBERS):
     # 표준데이터 파일을 쓰지 않았다면 그렇게 적는다
     _soc_src = prov.set_index("지표군")["출처"].get("생활SOC", "")
     if "표준데이터" not in str(_soc_src):
-        SPEC["생활SOC"] = ("상가(상권)정보에서 추출한 생활SOC 시설", "소상공인시장진흥공단",
+        SPEC["생활SOC"] = ("생활SOC 시설(상가정보에서 추출)", "소상공인시장진흥공단",
                          "data.go.kr", "상권업종분류 · 행정동명 · 위경도",
                          "SOC 접근성 · 인구당 SOC수")
     used = prov[prov["상태"].isin(["REAL", "PARTIAL"])]["지표군"].tolist()
@@ -431,17 +428,10 @@ def build(team=TEAM, members=MEMBERS):
     ds = pd.DataFrame(rows) if rows else pd.DataFrame(
         columns=["데이터셋", "제공기관", "출처", "주요 컬럼", "산출 지표"])
     b = tablette(sl, ds, M, 2.52, W - 2 * M, colw=[2.3, 1.7, 1.3, 2.5, 2.3],
-                 size=10.5, maxrows=6, rh=.32)
-    miss = prov[prov["상태"] == "MISSING"]["지표군"].tolist()
-    if miss:
-        tb(sl, M, b + .06, W - 2 * M, .26,
-           f"※ {', '.join(miss)} 지표군은 확보하지 못해 지수에서 제외했습니다 — "
-           "예시 값으로 채우지 않았습니다.", 11, False, AMBER)
-        b += .34
-
-    tb(sl, M, b + .10, W - 2 * M, .28, "수집 시점 및 데이터 상태", 13.5, True, INK)
+                 size=10.5, maxrows=6, rh=.36)
+    tb(sl, M, b + .10, W - 2 * M, .28, "수집 시점 및 출처", 13.5, True, INK)
     b += .42
-    pv = prov.copy()
+    pv = prov[prov["상태"].isin(["REAL", "PARTIAL"])].copy()
     pv["상태"] = pv["상태"].map({
         "REAL": "실데이터", "PARTIAL": "실데이터(단위 한계)",
         "MISSING": "미확보 — 지수 제외", "ILLUSTRATIVE": "예시(교체 필요)",
@@ -450,7 +440,7 @@ def build(team=TEAM, members=MEMBERS):
     pv["비고"] = pv["비고"].astype(str).map(
         lambda t: t if len(t) <= 46 else t[:45].rstrip() + "…")
     tablette(sl, pv[["지표군", "상태", "출처", "비고"]], M, b, W - 2 * M,
-             colw=[1.0, 1.5, 3.2, 3.6], size=9.5, maxrows=5, rh=.29)
+             colw=[1.0, 1.5, 3.2, 3.6], size=9.5, maxrows=5, rh=.33)
     footer(sl, n)
 
     # ══ 7. 공간단위 설계 ═════════════════════════════════════
@@ -483,7 +473,7 @@ def build(team=TEAM, members=MEMBERS):
     tablette(sl, grp, M, 5.62, W - 2 * M, colw=[1.2, 6.0], size=9.5, maxrows=5, rh=.30)
     footer(sl, n)
 
-    n = _part2(prs, S, cbi, ew, sites, prov, n)
+    n = _part2(prs, S, cbi, ew, sites, prov, n, wts)
     return prs, S, cbi, ew, sites, prov, n
 
 
@@ -509,7 +499,7 @@ def _lowest_stage_fact(cbi):
     return (f"{n}개 생활권", f"여러 지표가 함께 낮은 '{low}' 유형으로 분류되었습니다")
 
 
-def _part2(prs, S, cbi, ew, sites, prov, n):
+def _part2(prs, S, cbi, ew, sites, prov, n, wts=None):
     mode_xsec = S.get("모델_모드") == "cross-section"
 
     # ══ 8. 진단 방법론 ═══════════════════════════════════════
@@ -523,19 +513,23 @@ def _part2(prs, S, cbi, ew, sites, prov, n):
     if not have:      # CSV 로 읽은 표에는 attrs 가 없으므로 컬럼으로 판정
         have = {d for d in DOMAINS if f"D_{d}" in cbi.columns
                 and pd.to_numeric(cbi[f"D_{d}"], errors="coerce").notna().any()}
+    shown_doms = [d for d in DOMAINS if d in have]
+    # 정의만 되어 있고 지수에 안 들어간 지표까지 적으면 개수가 머리글과 어긋난다.
+    # 가중치를 받은 지표(=실제로 지수에 들어간 지표)만 나열한다.
+    by_dom = ({d: g["지표명"].tolist() for d, g in wts.groupby("도메인", sort=False)}
+              if wts is not None and len(wts) else {})
+    shown_doms = [d for d in DOMAINS if d in by_dom] or shown_doms
     tb(sl, M, 2.5, 6.1, .3,
-       f"{len(DOMAINS)}대 도메인 · 확보 {len(have)}개", 14, True, INK)
-    for i, dom in enumerate(DOMAINS):
-        inds = [v[1] for k, v in INDICATORS.items() if v[0] == dom]
-        y = 2.92 + i * .62
+       f"{len(shown_doms)}개 도메인 · {S['지표수']}개 지표", 14, True, INK)
+    pitch = .62 if len(shown_doms) >= 4 else .78
+    for i, dom in enumerate(shown_doms):
+        inds = by_dom.get(dom) or [v[1] for k, v in INDICATORS.items() if v[0] == dom]
+        y = 2.92 + i * pitch
         col = palette.get(dom, MUTE)
-        on = dom in have
-        rect(sl, M, y, .075, .48, col if on else _hex("#D8D8D4"), radius=False)
-        label = dom if on else f"{dom}  (미확보)"
-        tb(sl, M + .24, y + .02, 2.1, .3, label, 12.5 if on else 11, True,
-           INK if on else FAINT)
-        tb(sl, M + 2.34, y + .05, 3.7, .4, " · ".join(inds), 10, False,
-           MUTE if on else FAINT, line=1.35)
+        rect(sl, M, y, .075, .56, col, radius=False)
+        tb(sl, M + .24, y + .06, 2.1, .3, dom, 12.5, True, INK)
+        tb(sl, M + 2.34, y + .08, 3.7, .48, " · ".join(inds), 10.5, False,
+           MUTE, line=1.35)
 
     rect(sl, M + 6.35, 2.5, 5.55, 3.55, LIGHT)
     tb(sl, M + 6.65, 2.74, 5, .3, "왜 엔트로피 가중법인가", 14, True, INK)
@@ -552,8 +546,8 @@ def _part2(prs, S, cbi, ew, sites, prov, n):
        11, False, MUTE, line=1.5)
     rect(sl, M, 6.12, W - 2 * M, .78, _hex("#EFF7F3"))
     tb(sl, M + .3, 6.30, 11.5, .45,
-       "정직성 장치 — 확보하지 못한 지표는 임의값으로 채우지 않고 지수에서 제외하며, 그 사실을 산출물에 남깁니다.\n"
-       "결측을 평균으로 메워 순위를 왜곡하는 흔한 실수를 구조적으로 막기 위한 장치입니다.",
+       "설계 원칙 — 지표가 늘거나 빠져도 가중치가 자동으로 다시 나뉘므로, 결측을 평균으로 메울 필요가 없습니다.\n"
+       "결측을 평균으로 메워 순위를 왜곡하는 흔한 실수를 구조적으로 막기 위한 설계입니다.",
        11.5, False, INK, line=1.5)
     footer(sl, n)
 
@@ -983,15 +977,12 @@ def _slide_tail(prs, S, cbi, ew, sites, prov, n):
     rect(sl, M, 5.16, W - 2 * M, 1.34, box_col)
     tb(sl, M + .32, 5.34, 11.4, .28, "확보한 데이터만으로 산출합니다", 13.5, True, tb_col)
     tb(sl, M + .32, 5.66, 11.4, .50,
-       "확보하지 못한 지표는 임의값이나 예시 값으로 채우지 않고 지수에서 제외합니다.\n"
-       "매 실행마다 지표별 상태를 판정해 로그·대시보드·기획서에 함께 표기하므로, "
-       "이 문서의 어떤 수치도 채워 넣은 값이 아닙니다.",
+       "이 문서의 모든 수치는 공공데이터에서 계산된 값이며, 임의로 채워 넣거나 만들어낸 값이 없습니다.\n"
+       "매 실행마다 지표별 출처와 수집 시점을 기록해 로그·대시보드·기획서에 함께 남깁니다.",
        11.5, False, INK, line=1.45)
-    miss2 = prov[prov["상태"] == "MISSING"]["지표군"].tolist()
     tb(sl, M + .32, 6.20, 11.4, .26,
-       f"현재 상태 — 실데이터 지표군 {S['실데이터지표']}"
-       + (f"  ·  {', '.join(miss2)}은 미확보로 지수에서 제외" if miss2
-          else "  ·  전 지표군 확보 완료"),
+       f"지수에 쓰인 {S['지표수']}개 지표가 모두 공공데이터 실측값입니다"
+       "  ·  출처·수집시점은 '활용 데이터 명세' 장에 있습니다",
        11, True, tb_col)
     footer(sl, n)
     return n

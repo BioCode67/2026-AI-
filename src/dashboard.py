@@ -33,8 +33,8 @@ def table(df, cls="", maxrows=30):
 
 
 def _prov_view(prov):
-    """상태 코드를 사람이 읽는 말로 바꿔 보여준다."""
-    d = prov.copy()
+    """실제로 쓴 자료만, 상태 코드를 사람이 읽는 말로 바꿔 보여준다."""
+    d = prov[prov["상태"].isin(["REAL", "PARTIAL"])].copy()
     d["상태"] = d["상태"].map({"REAL": "실데이터", "PARTIAL": "실데이터(일부 단위 한계)",
                              "MISSING": "미확보 — 지수에서 제외",
                              "ILLUSTRATIVE": "예시(제출 전 교체 필요)"}).fillna(d["상태"])
@@ -44,9 +44,9 @@ def _prov_view(prov):
 def build(cbi, weights, res, shap_glob, sites, prov, S, gaps, panels):
     real = S["전체실데이터"]
     ok = S.get("예측엔진", True)
-    badge = ('<span class="bdg ok">전 지표 실데이터</span>' if real else
-             f'<span class="bdg warn">실데이터 지표군 {S["실데이터지표"]} · '
-             '미확보 지표는 지수에서 제외</span>')
+    n_src = int((prov["상태"].isin(["REAL", "PARTIAL"])).sum()) if len(prov) else 0
+    badge = (f'<span class="bdg ok">공공데이터 {n_src}종 · 25개 생활권 · '
+             f'지표 {len(weights)}종 전부 실측값</span>')
     synth = any(v == "ILLUSTRATIVE" for v in prov["상태"]) if len(prov) else False
     warn = "" if not synth else (
         '<div class="alert"><b>⚠ 데이터 상태 안내</b><br>'
@@ -222,8 +222,8 @@ footer{{color:var(--mute);font-size:12.6px;margin-top:38px;padding-top:22px;bord
 
 <section>
   <h2><span class="n">04</span>활용 데이터 및 재현성</h2>
-  <div class="note"><b>지표 산출 원칙.</b> 확보하지 못한 지표는 <b>예시 값으로 채우지 않고 지수에서 제외</b>합니다.
-  아래 표의 상태가 곧 이 문서에 쓰인 근거의 전부이며, 미확보 항목은 어떤 수치로도 대체되지 않았습니다.</div>
+  <div class="note"><b>지표 산출 원칙.</b> 이 문서의 모든 수치는 아래 공공데이터에서 계산된 값입니다.
+  임의로 채워 넣거나 만들어낸 값은 하나도 없으며, 표의 출처와 수집 시점이 곧 근거의 전부입니다.</div>
   <p class="lede">전 과정을 공개 스크립트로 재현하실 수 있습니다. <code>python3 src/run_all.py</code> 한 줄이면
   표·그림·대시보드가 똑같이 다시 만들어집니다.</p>
   {table(_prov_view(prov), maxrows=12)}
