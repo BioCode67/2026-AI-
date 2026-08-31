@@ -190,6 +190,10 @@ def tablette(sl, df, x, y, w, colw=None, size=10.5, maxrows=10, head_bg=LIGHT,
     return bottom
 
 
+def I_CITY_VACANCY(S):
+    return bool(S.get("시단위수치", {}).get("빈집률"))
+
+
 def footer(sl, n, txt="천안 균형발전 나침반(CBC)"):
     tb(sl, M, H - .46, 6, .3, txt, 9.5, False, MUTE)
     tb(sl, W - M - 1, H - .46, 1, .3, str(n), 9.5, False, MUTE, align=PP_ALIGN.RIGHT)
@@ -303,7 +307,10 @@ def build(team=TEAM, members=MEMBERS):
                "반대 방향으로 움직였습니다.")
     lo = cbi.nsmallest(5, "CBI")[["zone", "CBI"]]
     hi = cbi.nlargest(3, "CBI")[["zone", "CBI"]]
-    rect(sl, M, 2.42, 6.0, 3.9, WHITE, LINE)
+    _facts_n = 5 if I_CITY_VACANCY(S) else 4
+    _pitch = .78 if _facts_n <= 4 else .66
+    _box_h = max(3.9, (3.06 - 2.42) + _pitch * (_facts_n - 1) + .66 + .18)
+    rect(sl, M, 2.42, 6.0, _box_h, WHITE, LINE)
     tb(sl, M + .32, 2.66, 5.4, .3, "공공데이터로 확인한 차이", 14.5, True, INK)
     facts = [(f'{S["격차배율"]}배',
               f'{S.get("격차상위", "")} ↔ {S.get("격차하위", "")} (권역유형 평균 CBI)'),
@@ -315,12 +322,12 @@ def build(team=TEAM, members=MEMBERS):
                  f'천안시 빈집률 — 빈집 {S["시단위수치"].get("빈집수", 0):,}호 '
                  f'(KOSIS 2025, 시 단위)')]
                if S.get("시단위수치", {}).get("빈집률") else [])]
-    facts = facts[:4]
+    facts = facts[:_facts_n]
     for i, (big, small) in enumerate(facts):
-        y = 3.12 + i * .78
-        tb(sl, M + .32, y, 2.55, .38, big, 19, True, ACC)
-        tb(sl, M + .32, y + .38, 5.4, .3, small, 11.5, False, MUTE, line=1.35)
-    rect(sl, M + 6.35, 2.42, 5.55, 3.9, LIGHT)
+        y = 3.06 + i * _pitch
+        tb(sl, M + .32, y, 2.55, .36, big, 19, True, ACC)
+        tb(sl, M + .32, y + .36, 5.4, .3, small, 11.5, False, MUTE, line=1.35)
+    rect(sl, M + 6.35, 2.42, 5.55, _box_h, LIGHT)      # 두 상자 높이를 맞춘다
     tb(sl, M + 6.65, 2.66, 5, .3, "왜 지금 살펴보면 좋을까요", 14.5, True, INK)
     bullets(sl, M + 6.65, 3.06, 4.9, [
         ("변화는 서서히, 되돌리기는 어렵게 옵니다",
