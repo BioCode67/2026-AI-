@@ -1,0 +1,192 @@
+# -*- coding: utf-8 -*-
+"""단일 HTML 대시보드 생성 (이미지 base64 내장 → 파일 하나로 제출 가능)"""
+from __future__ import annotations
+import base64, sys
+from pathlib import Path
+import pandas as pd
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from config import FIG, DELIV, DOMAINS, TYPE_COLOR
+
+TITLE = "천안 균형발전 나침반(CBC)"
+SUB = "원도심 쇠퇴 조기경보와 생활SOC 투자 우선순위 AI"
+
+
+def b64(name):
+    p = FIG / name
+    return base64.b64encode(p.read_bytes()).decode() if p.exists() else ""
+
+
+def img(name, cap=""):
+    d = b64(name)
+    if not d:
+        return ""
+    c = f'<figcaption>{cap}</figcaption>' if cap else ""
+    return f'<figure><img src="data:image/png;base64,{d}" alt="{cap or name}">{c}</figure>'
+
+
+def table(df, cls="", maxrows=30):
+    d = df.head(maxrows)
+    th = "".join(f"<th>{c}</th>" for c in d.columns)
+    tr = "".join("<tr>" + "".join(f"<td>{v}</td>" for v in r) + "</tr>"
+                 for r in d.itertuples(index=False))
+    return f'<div class="tw"><table class="{cls}"><thead><tr>{th}</tr></thead><tbody>{tr}</tbody></table></div>'
+
+
+def build(cbi, weights, res, shap_glob, sites, prov, S, gaps, panels):
+    real = S["전체실데이터"]
+    badge = ('<span class="bdg ok">전 지표 실데이터</span>' if real else
+             f'<span class="bdg warn">예시 데이터 포함 · 실데이터 {S["실데이터지표"]}</span>')
+    warn = "" if real else (
+        '<div class="alert"><b>⚠ 데이터 상태 안내</b><br>'
+        '아래 수치 중 일부는 공공데이터 미투입 구간을 <b>예시(illustrative)</b> 값으로 채운 결과입니다. '
+        '<code>data/raw/</code> 에 실제 CSV를 넣고 <code>python3 src/run_all.py</code> 를 다시 실행하면 '
+        '전 항목이 실데이터로 자동 갱신됩니다. <b>제출 전 반드시 실데이터로 재생성하세요.</b></div>')
+
+    kpi = [("격차 배율", f'{S["격차배율"]}배', f'신도심 {S["신도심_CBI"]} vs 원도심 {S["원도심_CBI"]}'),
+           ("지니계수", f'{S["지니계수"]}', "25개 생활권 CBI 불균등도"),
+           ("조기경보 정확도", f'R² {S["모델_R2"]}', f'베이스라인 대비 MAE {S["MAE_개선율"]}%↓'),
+           ("추천 투자 수혜", f'{S["신규수혜인구"]:,}명', f'{S["추천입지수"]}개소 · 커버리지 +{S["커버리지개선"]}%p')]
+    kpis = "".join(f'<div class="kpi"><span class="lab">{a}</span>'
+                   f'<span class="val">{b}</span><span class="sub">{c}</span></div>'
+                   for a, b, c in kpi)
+
+    rank = cbi.reset_index()[["zone", "gu", "ztype", "CBI", "stage"]].copy()
+    rank["CBI"] = rank["CBI"].round(1)
+    rank.columns = ["생활권", "자치구", "권역유형", "CBI", "쇠퇴단계"]
+
+    ew = res.copy().round(1)
+    ew.columns = ["생활권", "현재 위험도", "3년 후 예측", "변화"]
+    ew = ew.head(10)
+
+    w = weights.rename("가중치").to_frame()
+    from config import INDICATORS
+    w["도메인"] = [INDICATORS[i][0] for i in w.index]
+    w["지표"] = [INDICATORS[i][1] for i in w.index]
+    w["가중치"] = (w["가중치"] * 100).round(1).astype(str) + "%"
+    w = w.sort_values("가중치", ascending=False)[["도메인", "지표", "가중치"]]
+
+    st = sites[["순위", "생활권", "시설유형", "신규수혜인구", "커버리지개선률", "빈집률", "CBI"]].copy() \
+        if len(sites) else pd.DataFrame()
+    if len(st):
+        st["신규수혜인구"] = st["신규수혜인구"].map("{:,}".format)
+
+    html = f"""<title>{TITLE}</title>
+<style>
+:root{{--bg:#F7F8FA;--card:#FFFFFF;--ink:#151C26;--mute:#5D6874;--line:#E3E7ED;
+ --accent:#D64545;--blue:#2E7DD1;--green:#3E9B7C;--amber:#C98A1E;--shadow:0 1px 3px rgba(20,30,45,.07),0 8px 24px rgba(20,30,45,.05)}}
+@media (prefers-color-scheme:dark){{:root:not([data-theme="light"]){{--bg:#0F1419;--card:#171D25;--ink:#E9EDF2;
+ --mute:#98A3B0;--line:#252D38;--accent:#F0736F;--blue:#6BA9E8;--green:#5FBF9C;--amber:#E0AB4A;
+ --shadow:0 1px 3px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.3)}}}}
+:root[data-theme="dark"]{{--bg:#0F1419;--card:#171D25;--ink:#E9EDF2;--mute:#98A3B0;--line:#252D38;
+ --accent:#F0736F;--blue:#6BA9E8;--green:#5FBF9C;--amber:#E0AB4A;
+ --shadow:0 1px 3px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.3)}}
+*{{box-sizing:border-box}}
+body{{background:var(--bg);color:var(--ink);margin:0;
+ font:15px/1.65 -apple-system,BlinkMacSystemFont,"Pretendard","Apple SD Gothic Neo","Malgun Gothic",sans-serif}}
+.wrap{{max-width:1120px;margin:0 auto;padding:40px 22px 80px}}
+header{{margin-bottom:30px}}
+.eyebrow{{color:var(--accent);font-size:12.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase}}
+h1{{font-size:clamp(27px,4.4vw,40px);line-height:1.2;margin:8px 0 6px;letter-spacing:-.02em}}
+.sub{{color:var(--mute);font-size:17px;margin-bottom:14px}}
+.bdg{{display:inline-block;padding:5px 13px;border-radius:999px;font-size:12.5px;font-weight:700}}
+.bdg.ok{{background:rgba(62,155,124,.14);color:var(--green)}}
+.bdg.warn{{background:rgba(201,138,30,.15);color:var(--amber)}}
+.alert{{background:rgba(201,138,30,.1);border-left:3px solid var(--amber);
+ padding:14px 18px;border-radius:8px;margin:20px 0;font-size:14px;line-height:1.7}}
+.alert code{{background:rgba(125,135,150,.16);padding:1px 6px;border-radius:4px;font-size:12.5px}}
+.kpis{{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:14px;margin:26px 0 8px}}
+.kpi{{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:18px 20px;
+ box-shadow:var(--shadow);display:flex;flex-direction:column;gap:3px}}
+.kpi .lab{{font-size:12.5px;color:var(--mute);font-weight:600}}
+.kpi .val{{font-size:29px;font-weight:800;letter-spacing:-.02em;line-height:1.15}}
+.kpi .sub{{font-size:12.5px;color:var(--mute)}}
+section{{background:var(--card);border:1px solid var(--line);border-radius:15px;
+ padding:28px 30px;margin:22px 0;box-shadow:var(--shadow)}}
+h2{{font-size:21px;margin:0 0 6px;letter-spacing:-.015em}}
+h2 .n{{color:var(--accent);font-weight:800;margin-right:9px}}
+.lede{{color:var(--mute);font-size:14.5px;margin:0 0 20px}}
+h3{{font-size:15.5px;margin:26px 0 10px;color:var(--ink)}}
+figure{{margin:18px 0 6px}} figure img{{width:100%;border-radius:10px;border:1px solid var(--line)}}
+figcaption{{color:var(--mute);font-size:12.8px;margin-top:9px;text-align:center}}
+.tw{{overflow-x:auto;margin:14px 0}}
+table{{border-collapse:collapse;width:100%;font-size:13.4px;min-width:440px}}
+th{{background:rgba(125,135,150,.09);text-align:left;padding:9px 12px;
+ font-weight:700;border-bottom:2px solid var(--line);white-space:nowrap}}
+td{{padding:8px 12px;border-bottom:1px solid var(--line);white-space:nowrap}}
+tbody tr:hover{{background:rgba(125,135,150,.055)}}
+.two{{display:grid;grid-template-columns:1fr 1fr;gap:26px}}
+@media(max-width:760px){{.two{{grid-template-columns:1fr}}}}
+.note{{background:rgba(46,125,209,.08);border-left:3px solid var(--blue);
+ padding:13px 17px;border-radius:8px;font-size:13.6px;line-height:1.7;margin:16px 0}}
+footer{{color:var(--mute);font-size:12.6px;margin-top:38px;padding-top:22px;border-top:1px solid var(--line)}}
+</style>
+<div class="wrap">
+<header>
+  <div class="eyebrow">2026 천안시 AI·데이터 기반 정책 아이디어 경진대회 · 지역균형발전 · AI 모델 개발</div>
+  <h1>{TITLE}</h1>
+  <div class="sub">{SUB}</div>
+  {badge}
+</header>
+{warn}
+<div class="kpis">{kpis}</div>
+
+<section>
+  <h2><span class="n">01</span>진단 — 격차는 얼마나 벌어졌나</h2>
+  <p class="lede">25개 생활권 × 12개 지표를 <b>엔트로피 가중법</b>으로 합성해 CBI를 산출했다.
+  가중치를 연구자가 임의로 정하지 않고 데이터의 변별력에서 유도하므로 재현 가능하다.</p>
+  {img("01_CBI_랭킹.png", "생활권별 CBI — 색상은 권역유형")}
+  {img("02_도메인_히트맵.png", "권역유형 × 5대 도메인 — 낙후의 원인이 권역마다 다르다")}
+  <div class="note"><b>핵심 발견.</b> 원도심과 농촌면은 CBI가 모두 낮지만 <b>원인이 정반대</b>다.
+  원도심은 생활SOC를 이미 갖췄으나 경제·인구 활력이 무너졌고, 농촌면은 생활SOC 자체가 없다.
+  → 원도심엔 <b>유휴공간 활용형 상권·정주 재생</b>, 농촌면엔 <b>SOC 신규 확충</b>이라는 서로 다른 처방이 필요하다.</div>
+  {img("03_격차추이.png", "권역유형별 인구·사업체 궤적")}
+  <h3>생활권별 CBI 순위</h3>
+  {table(rank, maxrows=25)}
+</section>
+
+<section>
+  <h2><span class="n">02</span>예측 — 다음에 무너질 곳은 어디인가</h2>
+  <p class="lede">t년 정보만으로 <b>t+3년 쇠퇴위험도</b>를 예측한다. 같은 생활권이 학습·검증에 동시에
+  들어가지 않도록 <b>Leave-One-Zone-Out CV</b>로 공간 정보누수를 차단했다.</p>
+  {img("04_조기경보.png", "현재 위험도 대비 3년 후 예측 — 대각선 위쪽이 악화 예상 구간")}
+  {img("05_SHAP_요인분해.png", "SHAP 기반 전역 중요도 및 생활권별 쇠퇴요인 분해")}
+  <div class="note"><b>왜 설명가능 AI인가.</b> 공무원이 예산을 집행하려면 "왜 이 동인가"를 문서로 설명해야 한다.
+  SHAP은 생활권마다 위험을 밀어올린 요인을 분해해 주므로, 모델 출력이 곧 <b>사업 제안서의 근거</b>가 된다.</div>
+  <div class="two">
+    <div><h3>3년 후 고위험 상위 10</h3>{table(ew, maxrows=10)}</div>
+    <div><h3>엔트로피 가중치</h3>{table(w, maxrows=12)}</div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="n">03</span>처방 — 한정된 예산을 어디부터 쓸 것인가</h2>
+  <p class="lede">빈집·노후 밀집지를 유휴부지 후보로 두고, <b>MCLP(최대커버링입지문제)</b> 탐욕 최적화로
+  "한 곳을 새로 지었을 때 늘어나는 취약수요 커버리지"가 최대인 지점을 순서대로 고른다.
+  한 생활권에 예산이 몰리지 않도록 형평성 제약(생활권당 최대 2개소)을 걸었다.</p>
+  {img("06_SOC_사각지대.png", "고령인구 대비 생활SOC 접근성 — 좌상단이 최우선 사각지대")}
+  {img("07_투자입지_지도.png", "AI 추천 신규 입지 (★) 와 기존 생활SOC 분포")}
+  {img("08_커버리지_곡선.png", "투자 순위별 한계효용 — 어디서 멈춰도 근거가 남는다")}
+  <h3>투자 우선순위</h3>
+  {table(st, maxrows=20) if len(st) else ""}
+</section>
+
+<section>
+  <h2><span class="n">04</span>활용 데이터 및 재현성</h2>
+  <p class="lede">전 과정이 공개 스크립트로 재현된다. <code>python3 src/run_all.py</code> 한 줄이면
+  표·그림·대시보드가 동일하게 재생성된다.</p>
+  {table(prov, maxrows=12)}
+  <div class="note">본 분석은 정식 공공데이터 포털에서 합법적으로 내려받은 파일만 사용한다.
+  크롤링·상업용 민간데이터를 일절 쓰지 않으며, 개인을 식별할 수 있는 정보는 다루지 않는다
+  (전 지표가 생활권 단위 집계값).</div>
+</section>
+
+<footer>
+  2026년 천안시 AI·데이터 기반 정책 아이디어 경진대회 출품작 · 지역균형발전 부문 · AI 모델 개발<br>
+  분석 단위 25개 생활권 · 지표 12종 · 군집 k={S['군집수']}(실루엣 {S['실루엣']}) ·
+  조기경보 LOZO-CV R² {S['모델_R2']} · 재현 스크립트 <code>src/run_all.py</code>
+</footer>
+</div>"""
+    out = DELIV / "dashboard.html"
+    out.write_text(html, encoding="utf-8")
+    print(f"    · {out.relative_to(DELIV.parent)}  ({len(html) / 1024:.0f} KB)")
+    return out
