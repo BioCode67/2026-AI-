@@ -33,13 +33,27 @@ def usable_indicators(df: pd.DataFrame) -> list[str]:
     return ok
 
 
+WINSOR = (0.05, 0.95)
+
+
 def normalize(df: pd.DataFrame, keys=None) -> pd.DataFrame:
-    """방향 보정 min-max 정규화 → 0~1 (1이 항상 '좋음')"""
+    """
+    방향 보정 정규화 → 0~1 (1이 항상 '좋음')
+
+    [왜 그냥 min-max 를 쓰지 않는가]
+    단순 min-max 는 극단값 하나에 지수 전체가 휘둘린다. 실제로 천안 데이터에서
+    풍세면의 5년 인구증감률이 +158%(신축 입주 유입)로 나오자, 나머지 23개 생활권이
+    0.02~0.2 구간에 뭉쳐 변별력을 잃는 현상이 관측됐다.
+    → 5~95 백분위로 윈저화(winsorize)한 뒤 min-max 를 적용한다.
+      극단값은 경계값으로 눌리되 순위는 보존되므로, 지수가 특정 동네의
+      예외적 사건 하나에 좌우되지 않는다.
+    """
     Z = pd.DataFrame(index=df.index)
     for k, (_, _, direction, _) in ((k, INDICATORS[k]) for k in (keys or INDICATORS)):
         v = pd.to_numeric(df[k], errors="coerce")
         v = v.fillna(v.median())
-        lo, hi = v.min(), v.max()
+        lo, hi = v.quantile(WINSOR[0]), v.quantile(WINSOR[1])
+        v = v.clip(lo, hi)
         n = (v - lo) / (hi - lo) if hi > lo else pd.Series(0.5, index=v.index)
         Z[k] = n if direction > 0 else 1 - n
     return Z
