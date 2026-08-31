@@ -182,10 +182,12 @@ def tablette(sl, df, x, y, w, colw=None, size=10.5, maxrows=10, head_bg=LIGHT,
             r.font.color.rgb = INK; _set_font(r)
     for i in range(nr):
         t.rows[i].height = In(rh)
+    bottom = y + rh * nr
     if note_more and total > shown:
         tb(sl, x, y + rh * nr + .04, w, .22,
            f"… 외 {total - shown}개 (전체는 첨부 분석표 참조)", 9, False, FAINT)
-    return t
+        bottom += .26
+    return bottom
 
 
 def footer(sl, n, txt="천안 균형발전 나침반(CBC)"):
@@ -363,7 +365,13 @@ def build(team=TEAM, members=MEMBERS):
     n += 1
     sl = slide(prs, "ARCHITECTURE", "3-엔진 파이프라인",
                "공공데이터를 넣는 것부터 정책 자료가 나오기까지, 스크립트 하나로 이어집니다.")
-    stages = [("INPUT", "공공데이터", "주민등록 인구\nLOCALDATA 인허가\n상가정보·생활SOC\n빈집·버스정류장", MUTE),
+    # INPUT 은 실제로 들어온 자료만 적는다(미확보 자료를 넣은 것처럼 보이지 않도록)
+    _in = ["주민등록 인구", "상가(상권)정보", "생활SOC 표준데이터"]
+    if prov[prov["지표군"] == "주거"]["상태"].isin(["REAL", "PARTIAL"]).any():
+        _in.append("빈집 통계(시 단위)")
+    if prov[prov["지표군"] == "이동성"]["상태"].isin(["REAL", "PARTIAL"]).any():
+        _in.append("버스정류소")
+    stages = [("INPUT", "공공데이터", "\n".join(_in), MUTE),
               ("① DIAGNOSE", "진단 엔진", "엔트로피 가중 CBI\nK-means 유형화\n도메인별 분해", ACC),
               ("② PREDICT", "예측 엔진", "LightGBM 회귀\nLeave-One-Zone-Out CV\nSHAP 요인분해", BLUE),
               ("③ PRESCRIBE", "처방 엔진", "MCLP 탐욕 최적화\n형평성 제약\n한계효용 곡선", GREEN),
@@ -401,28 +409,38 @@ def build(team=TEAM, members=MEMBERS):
         "이동성": ("정류소 위치 자료", "국토교통부 TAGO / 천안시", "data.go.kr",
                 "정류소명, 위경도", "km²당 정류장 수"),
     }
+    # 표준데이터 파일을 쓰지 않았다면 그렇게 적는다
+    _soc_src = prov.set_index("지표군")["출처"].get("생활SOC", "")
+    if "표준데이터" not in str(_soc_src):
+        SPEC["생활SOC"] = ("상가(상권)정보에서 추출한 생활SOC 시설", "소상공인시장진흥공단",
+                         "data.go.kr", "상권업종분류 · 행정동명 · 위경도",
+                         "SOC 접근성 · 인구당 SOC수")
     used = prov[prov["상태"].isin(["REAL", "PARTIAL"])]["지표군"].tolist()
     rows = [dict(zip(["데이터셋", "제공기관", "출처", "주요 컬럼", "산출 지표"], SPEC[k]))
             for k in used if k in SPEC]
     ds = pd.DataFrame(rows) if rows else pd.DataFrame(
         columns=["데이터셋", "제공기관", "출처", "주요 컬럼", "산출 지표"])
-    tablette(sl, ds, M, 2.52, W - 2 * M, colw=[2.3, 1.7, 1.3, 2.5, 2.3],
-             size=10.5, maxrows=6, rh=.40)
+    b = tablette(sl, ds, M, 2.52, W - 2 * M, colw=[2.3, 1.7, 1.3, 2.5, 2.3],
+                 size=10.5, maxrows=6, rh=.32)
     miss = prov[prov["상태"] == "MISSING"]["지표군"].tolist()
     if miss:
-        tb(sl, M, 2.52 + .42 * (len(rows) + 1) + .12, W - 2 * M, .3,
+        tb(sl, M, b + .06, W - 2 * M, .26,
            f"※ {', '.join(miss)} 지표군은 확보하지 못해 지수에서 제외했습니다 — "
            "예시 값으로 채우지 않았습니다.", 11, False, AMBER)
+        b += .34
 
-    tb(sl, M, 4.62, W - 2 * M, .3, "수집 시점 및 데이터 상태", 13.5, True, INK)
+    tb(sl, M, b + .10, W - 2 * M, .28, "수집 시점 및 데이터 상태", 13.5, True, INK)
+    b += .42
     pv = prov.copy()
     pv["상태"] = pv["상태"].map({
         "REAL": "실데이터", "PARTIAL": "실데이터(단위 한계)",
         "MISSING": "미확보 — 지수 제외", "ILLUSTRATIVE": "예시(교체 필요)",
     }).fillna(pv["상태"])
-    pv["비고"] = pv["비고"].astype(str).str.slice(0, 46)
-    tablette(sl, pv[["지표군", "상태", "출처", "비고"]], M, 4.96, W - 2 * M,
-             colw=[1.0, 1.5, 3.2, 3.6], size=9.5, maxrows=5, rh=.30)
+    # 말이 중간에서 끊기면 오히려 불안해 보이므로 잘렸다는 표시를 남긴다
+    pv["비고"] = pv["비고"].astype(str).map(
+        lambda t: t if len(t) <= 46 else t[:45].rstrip() + "…")
+    tablette(sl, pv[["지표군", "상태", "출처", "비고"]], M, b, W - 2 * M,
+             colw=[1.0, 1.5, 3.2, 3.6], size=9.5, maxrows=5, rh=.29)
     footer(sl, n)
 
     # ══ 7. 공간단위 설계 ═════════════════════════════════════
@@ -693,8 +711,10 @@ def _part2(prs, S, cbi, ew, sites, prov, n):
          "고령 비율이 높고 지수가 낮은 동네의 1명을 더 크게 셉니다."),
         ("도달 범위 — 반경 1.0km",
          "걸어서 15분 거리입니다. 행정경계를 넘는 이용도 그대로 반영합니다."),
-        ("후보지 — 빈집·노후 밀집 격자",
-         "새 땅을 사는 대신 이미 비어 있는 공간을 후보로 둡니다."),
+        (f"후보지 — {' · '.join(S.get('후보지기준') or ['빈집·노후 밀집'])} 상위 격자",
+         "빈집·노후 자료가 생활권 단위로 확보되면 그 지표로 자동 대체됩니다."
+         if "빈집률" not in (S.get("후보지기준") or [])
+         else "새 땅을 사는 대신 이미 비어 있는 공간을 후보로 둡니다."),
         ("근거 — 탐욕해의 품질 보장",
          "이 문제는 최적해의 63% 이상이 수학적으로 보장되는 형태입니다."),
     ], size=11.5, gap=.44)

@@ -583,8 +583,10 @@ def load_facilities() -> tuple[pd.DataFrame, pd.DataFrame]:
         P = _fill_missing_coords(P)
         cnt = P.pivot_table(index="zone", columns="soc", aggfunc="size", fill_value=0)
         out = base_frame().set_index("zone").join(cnt).fillna(0)
-        note("생활SOC", "REAL", "공공데이터포털 표준데이터 + 상가정보",
-             " / ".join(srcs)[:90], len(P))
+        src_txt = ("소상공인 상가(상권)정보에서 생활SOC 시설 추출"
+                   if all(x.startswith("상가정보") for x in srcs)
+                   else "공공데이터포털 표준데이터 + 상가정보")
+        note("생활SOC", "REAL", src_txt, " / ".join(srcs)[:90], len(P))
         return out.reset_index(), P
     return _illustrative_facilities()
 
@@ -663,7 +665,9 @@ def load_housing(pop: pd.DataFrame) -> pd.DataFrame:
     if STRICT:
         out["vacancy_rate"] = np.nan
         out["old_building"] = np.nan
-        if CITY_STATS.get("빈집률") is not None:
+        if PROVENANCE.get("주거", {}).get("status") == "PARTIAL":
+            pass                      # _parse_vacancy 가 이미 더 자세히 기록했다
+        elif CITY_STATS.get("빈집률") is not None:
             note("주거", "PARTIAL", "KOSIS 미거주주택(빈집)비율",
                  f"천안시 전체 {CITY_STATS['빈집률']:.1f}%"
                  + (f" · {CITY_STATS['빈집수']:,}호" if "빈집수" in CITY_STATS else "")
@@ -744,7 +748,7 @@ def _parse_vacancy(df, pop, out):
             note("주거", "PARTIAL", "KOSIS 미거주주택(빈집)비율(시도/시/군/구)",
                  f"천안시 전체 {CITY_STATS['빈집률']:.1f}%"
                  + (f" · {CITY_STATS.get('빈집수', 0):,}호" if "빈집수" in CITY_STATS else "")
-                 + " — 시 단위 단일값이라 생활권 비교지표로는 쓰지 않고 배경 수치로만 사용",
+                 + " — 시 단위 단일값이라 배경 수치로만 사용",
                  len(d))
             return None          # 전 생활권 동일값 → 지수에서 자동 제외
     # ③ 구 단위(동남구/서북구)인가?

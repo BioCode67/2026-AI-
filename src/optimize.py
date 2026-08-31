@@ -69,6 +69,9 @@ class InsufficientData(RuntimeError):
     """입지 최적화에 필요한 최소 데이터가 없을 때 — 이 단계만 건너뛴다."""
 
 
+SITE_BASIS: list[str] = []     # 후보지 점수에 실제로 쓰인 지표(자료 상황에 따라 달라짐)
+
+
 def greedy_sites(zone: pd.DataFrame, pts: pd.DataFrame, n_sites=12,
                  max_per_zone=2) -> pd.DataFrame:
     """max_per_zone: 예산 형평성 제약 — 한 생활권 집중 배정을 막는다."""
@@ -95,6 +98,7 @@ def greedy_sites(zone: pd.DataFrame, pts: pd.DataFrame, n_sites=12,
         parts = [(1 - zi["CBI"].rank(pct=True)), zi["aging_ratio"].rank(pct=True)]
         used = ["CBI 열위", "고령비율"]
     renew = sum(parts) / len(parts)
+    SITE_BASIS[:] = used            # 기획서·대시보드가 같은 문구를 쓰도록
     print(f"    · 후보지 점수 기준: {', '.join(used)}")
     G["renew_score"] = G.zone.map(renew)
     cand = G[G.renew_score > 0.35].index.to_numpy()

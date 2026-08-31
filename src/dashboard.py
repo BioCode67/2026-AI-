@@ -98,6 +98,10 @@ def build(cbi, weights, res, shap_glob, sites, prov, S, gaps, panels):
     w["가중치"] = (w["가중치"] * 100).round(1).astype(str) + "%"
     w = w[["도메인", "지표", "가중치"]]
 
+    # 후보지 점수에 실제로 쓰인 지표를 그대로 적는다(자료 상황에 따라 달라짐)
+    basis = S.get("후보지기준") or []
+    basis_txt = (" · ".join(basis) + " 상위 생활권의 격자") if basis else "유휴부지 후보 격자"
+
     cols = ["순위", "생활권", "시설유형", "신규수혜인구", "커버리지개선률", "빈집률", "CBI"]
     st = sites[[c for c in cols if c in sites.columns]].copy() if len(sites) else pd.DataFrame()
     if len(st):
@@ -206,7 +210,7 @@ footer{{color:var(--mute);font-size:12.6px;margin-top:38px;padding-top:22px;bord
 
 <section>
   <h2><span class="n">03</span>순서 정하기 — 한 곳을 놓는다면 어디부터일까요</h2>
-  <p class="lede">빈집·노후 밀집지를 유휴부지 후보로 두고, <b>MCLP(최대커버링입지문제)</b> 탐욕 최적화로
+  <p class="lede">{basis_txt}를 후보지로 두고, <b>MCLP(최대커버링입지문제)</b> 탐욕 최적화로
   "한 곳을 새로 놓았을 때 새로 닿는 분이 가장 많은 지점"을 순서대로 골랐습니다.
   계산만 그대로 두면 한 동네에 전부 몰리기 때문에, 생활권당 최대 2개소로 제한했습니다.</p>
   {img("06_SOC_사각지대.png", "고령인구 대비 생활SOC 접근성 — 좌상단이 최우선 사각지대")}

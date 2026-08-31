@@ -99,6 +99,7 @@ def main(n_sites: int = 12):
         방향적중률=round(metrics.get("방향적중률", float("nan")), 0) if forecast_ok else None,
         모델_목표=metrics.get("target", ""),
         위험급등_생활권=res.nlargest(3, "risk_delta")["zone"].tolist() if forecast_ok else [],
+        후보지기준=list(optimize.SITE_BASIS),
         처방엔진=sites_ok,
         추천입지수=len(sites),
         신규수혜인구=int(sites["신규수혜인구"].sum()) if len(sites) else 0,
