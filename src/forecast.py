@@ -196,7 +196,6 @@ def fit_evaluate(p: pd.DataFrame, zone_static: pd.DataFrame | None = None):
         return fit_evaluate_xsec(zone_static)
     if len(d) < 30:
         raise InsufficientData("시계열 패널과 구조지표가 모두 부족해 예측 모델을 학습할 수 없습니다.")
-    globals()["ACTIVE_FEATURES"] = FEATURES
     X, y, zones = d[feats], d["target"], d["zone"]
 
     # Leave-One-Zone-Out CV — 같은 생활권이 학습/검증에 동시에 들어가지 않게 함
