@@ -181,6 +181,8 @@ def build(team=TEAM, members=MEMBERS):
     S = json.loads((TAB / "09_요약지표.json").read_text(encoding="utf-8"))
     prov = pd.read_csv(TAB / "00_데이터_출처.csv")
     cbi  = pd.read_csv(TAB / "02_CBI_균형발전지수.csv")
+    if "zone" in cbi.columns:
+        cbi = cbi.set_index("zone", drop=False)   # 이름으로 조회해야 하는 곳이 많다
     _ewp = TAB / "04_쇠퇴조기경보_예측.csv"
     ew   = pd.read_csv(_ewp) if _ewp.exists() else pd.DataFrame(
         columns=["zone", "risk", "risk_pred", "risk_delta"])
@@ -316,11 +318,12 @@ def build(team=TEAM, members=MEMBERS):
              "판단의 근거 수치를 표로 함께 제시"]})
     tablette(sl, comp, M, 2.62, W - 2 * M, colw=[1.2, 3.0, 2.8], size=11.5, maxrows=4,
              rh=.42)
-    rect(sl, M, 4.86, W - 2 * M, 1.42, LIGHT)
-    tb(sl, M + .35, 5.08, 11.4, .32,
-       "데이터는 현장의 경험을 대신할 수 없습니다. 다만 한 번 더 확인해 보는 참고자료는 될 수 있다고 생각합니다.",
-       14.5, True, INK)
-    tb(sl, M + .35, 5.5, 11.4, .68,
+    rect(sl, M, 4.80, W - 2 * M, 1.52, LIGHT)
+    tb(sl, M + .35, 5.00, 11.4, .32,
+       "데이터는 현장의 경험을 대신할 수 없습니다.\n"
+       "다만 한 번 더 확인해 보는 참고자료는 될 수 있다고 생각합니다.",
+       13.5, True, INK, line=1.35)
+    tb(sl, M + .35, 5.62, 11.4, .64,
        "새로운 데이터를 더 사자는 제안이 아닙니다. 천안시가 이미 쓰실 수 있는 공공데이터만 엮어 세 가지 참고자료를 만들었고,\n"
        "추가 비용이나 시스템 없이 스크립트 한 줄로 매년 갱신하실 수 있게 준비했습니다.",
        12.5, False, MUTE, line=1.5)
@@ -523,15 +526,13 @@ def _part2(prs, S, cbi, ew, sites, prov, n):
     # 실데이터에서 관측된 반등 사례 — 제안의 전제를 뒷받침하는 대목
     up = cbi.nlargest(2, "pop_growth_5y")[["ztype", "pop_growth_5y"]]
     names = ", ".join(f"{z}({r.pop_growth_5y:+.0f}%)" for z, r in up.iterrows())
-    rect(sl, M, 6.0, W - 2 * M, .96, _hex("#EFF7F3"))
-    tb(sl, M + .3, 6.18, 11.5, .3,
-       "다만 '원도심이면 다 줄어든다'는 것은 아니었습니다.", 13, True, GREEN)
-    tb(sl, M + .3, 6.5, 11.5, .4,
-       f"5년 인구증감률 상위는 {names}으로, 두 곳 모두 신축 입주가 이어진 지역입니다. "
-       "원도심에 속한 문성동도 사람이 돌아왔습니다.\n"
-       "비어 있던 공간이 다시 주거로 쓰이면 인구가 회복될 수 있다는 뜻으로 읽었고, "
-       "뒤에서 말씀드릴 빈집 활용 제안의 근거가 되었습니다.",
-       11.5, False, INK, line=1.45)
+    rect(sl, M, 5.92, W - 2 * M, .92, _hex("#EFF7F3"))
+    tb(sl, M + .3, 6.06, 11.5, .28,
+       "다만 '원도심이면 다 줄어든다'는 것은 아니었습니다.", 12.5, True, GREEN)
+    tb(sl, M + .3, 6.36, 11.5, .38,
+       f"5년 인구증감률 상위는 {names} — 두 곳 모두 신축 입주가 이어진 지역입니다.\n"
+       "비어 있던 공간이 다시 주거로 쓰이면 사람이 돌아온다는 뜻으로 읽었습니다.",
+       11, False, INK, line=1.4)
     footer(sl, n)
 
     # ══ 12. 예측 설계 ════════════════════════════════════════
@@ -685,15 +686,22 @@ def _slide_people(prs, S, cbi, n):
     n += 1
     sl = slide(prs, "FOR WHOM", "결국, 이런 분들께 닿았으면 합니다",
                "지수와 모델은 수단일 뿐입니다. 저희가 계속 떠올린 것은 아래 네 분의 하루였습니다.")
-    lo3 = cbi.nsmallest(3, "CBI").index.tolist()
-    old_top = cbi.nlargest(1, "aging_ratio")
+    # 문단 주제(원도심/농촌면)와 실제 인용 지역이 어긋나지 않게 권역별로 뽑는다
+    def worst_in(ztype, col="CBI", largest=False):
+        sub = cbi[cbi.ztype == ztype]
+        if not len(sub):
+            sub = cbi
+        r = sub.nlargest(1, col) if largest else sub.nsmallest(1, col)
+        return r.iloc[0]
+    old_town = worst_in("원도심")
+    rural = worst_in("농촌면", "aging_ratio", largest=True)
     people = [
         ("원도심에 오래 사신 어르신", ACC,
-         f"{lo3[0] if lo3 else '원도심'} 일대는 젊은 이웃이 하나둘 떠나고 상가도 비었습니다.\n"
-         "가게와 병원이 멀어질수록, 걸어서 하실 수 있는 일이 줄어듭니다."),
+         f"{old_town['zone']}은 인구가 5년 새 {old_town['pop_growth_5y']:+.0f}% 움직였고 "
+         f"고령 비율은 {old_town['aging_ratio']:.0f}%입니다.\n"
+         "시설은 가까이 있는데 함께 사시던 이웃이 줄어드는 동네입니다."),
         ("농촌면에서 아이 키우시는 부모님", C(0x8A, 0x7F, 0xB5),
-         f"고령 비율이 가장 높은 곳은 {old_top.index[0]}으로 "
-         f"{old_top['aging_ratio'].iloc[0]:.0f}%였습니다.\n"
+         f"{rural['zone']}은 고령 비율 {rural['aging_ratio']:.0f}%로 가장 높습니다.\n"
          "어린이집·도서관이 가까이 없으면 그 부담은 온전히 가정의 몫이 됩니다."),
         ("원도심에서 가게를 지켜오신 상인", AMBER,
          "오가는 분이 줄면 매출이 줄고, 문 닫는 가게가 늘면 오가는 분이 더 줍니다.\n"

@@ -11,9 +11,13 @@ TOL = 0.02
 def wide(ch):
     return unicodedata.east_asian_width(ch) in ("W", "F")
 
+# PDF 는 맑은 고딕이 없는 환경에서 나눔고딕으로 치환되는데 나눔고딕이 더 넓다.
+# 추정 폭을 좁게 잡으면 실제로는 넘치는데 검수를 통과해 버리므로 여유를 둔다.
+WIDTH_MARGIN = 1.12
+
 def text_width_pt(s, size):
-    """한글=size, 영문/숫자≈0.52*size 로 근사한 문자열 폭(pt)"""
-    return sum(size if wide(c) else size * 0.52 for c in s)
+    """한글=size, 영문/숫자≈0.56*size 로 근사한 문자열 폭(pt)"""
+    return sum(size if wide(c) else size * 0.56 for c in s) * WIDTH_MARGIN
 
 def needed_height_in(tf, box_w_in):
     """텍스트프레임이 실제로 필요로 하는 높이(inch) 추정"""
@@ -26,7 +30,7 @@ def needed_height_in(tf, box_w_in):
         ls = p.line_spacing if isinstance(p.line_spacing, float) else 1.2
         sb = p.space_before.pt if p.space_before else 0
         lines = max(1, math.ceil(text_width_pt(s, size) / box_w_pt)) if s else 1
-        total_pt += lines * size * ls * 1.06 + sb
+        total_pt += lines * size * ls * 1.12 + sb
     return total_pt / 72
 
 def rects_overlap(a, b, pad=0.0):
@@ -53,7 +57,7 @@ for i, sl in enumerate(prs.slides, 1):
         need = needed_height_in(sh.text_frame, w)
         snippet = sh.text_frame.text.strip().replace("\n", " / ")[:42]
         # 2) 텍스트 넘침 (박스 높이 대비)
-        if need > h * 1.25 + 0.06:
+        if need > h * 1.02 + 0.03:
             issues.append((i, "OVERFLOW",
                            f"h={h:.2f} 필요≈{need:.2f} | {snippet}"))
         # 3) 슬라이드 하단 이탈 (텍스트가 실제로 차지하는 높이 기준)
