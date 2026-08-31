@@ -142,9 +142,22 @@ def kpi_card(sl, x, y, w, h, lab, val, sub, accent=ACC, vsize=24):
     tb(sl, x + .28, y + .92, w - .5, .38, sub, 10, False, MUTE, line=1.32)
 
 
+SAFE_BOTTOM = 6.62          # 푸터 위 한계선 (푸터는 y=7.04)
+
+
 def tablette(sl, df, x, y, w, colw=None, size=10.5, maxrows=10, head_bg=LIGHT,
-             rh=.335):
-    df = df.head(maxrows)
+             rh=.335, note_more=True):
+    """
+    표가 슬라이드 아래로 새지 않도록 행 수를 자동으로 줄인다.
+    잘린 행이 있으면 '외 N개' 를 덧붙여 숨겼다는 사실을 밝힌다.
+    """
+    total = len(df)
+    fit_rows = max(1, int((SAFE_BOTTOM - y) / rh) - 1)
+    if fit_rows < min(maxrows, total):          # 자리가 부족하면 행 높이를 먼저 줄여 본다
+        rh = max(.26, (SAFE_BOTTOM - y) / (min(maxrows, total) + 1))
+        fit_rows = max(1, int((SAFE_BOTTOM - y) / rh) - 1)
+    shown = min(maxrows, fit_rows, total)
+    df = df.head(shown)
     nr, nc = len(df) + 1, len(df.columns)
     t = sl.shapes.add_table(nr, nc, In(x), In(y), In(w), In(rh * nr)).table
     if colw:
@@ -169,6 +182,9 @@ def tablette(sl, df, x, y, w, colw=None, size=10.5, maxrows=10, head_bg=LIGHT,
             r.font.color.rgb = INK; _set_font(r)
     for i in range(nr):
         t.rows[i].height = In(rh)
+    if note_more and total > shown:
+        tb(sl, x, y + rh * nr + .04, w, .22,
+           f"… 외 {total - shown}개 (전체는 첨부 분석표 참조)", 9, False, FAINT)
     return t
 
 
@@ -219,10 +235,16 @@ def build(team=TEAM, members=MEMBERS):
         tb(sl, x, 5.72, 3.3, .25, lab, 10.5, True, _hex("#6E7B8C"))
         tb(sl, x, 6.0, 3.3, .3, val, 14, True, WHITE)
     tb(sl, 1.15, 6.72, 5.4, .3, f"{team} · {members}", 12, False, C(0x8A, 0x97, 0xA8))
-    if not real:
-        tb(sl, W - M - 5.2, 6.72, 5.2, .3,
-           "※ 일부 지표 예시 데이터 — 실데이터 재실행 후 제출", 10, True, _hex("#FAB219"),
-           align=PP_ALIGN.RIGHT)
+    synth = "ILLUSTRATIVE" in set(prov["상태"]) if len(prov) else False
+    if synth:
+        tb(sl, W - M - 5.4, 6.72, 5.4, .3,
+           "※ 일부 지표가 예시 데이터입니다 — 실데이터로 재실행 후 제출하세요",
+           10, True, _hex("#FAB219"), align=PP_ALIGN.RIGHT)
+    elif not real:
+        miss = prov[prov["상태"] == "MISSING"]["지표군"].tolist()
+        tb(sl, W - M - 5.4, 6.72, 5.4, .3,
+           f"※ {', '.join(miss)} 지표군 미확보 — 지수에서 제외하고 산출",
+           10, False, _hex("#8894A6"), align=PP_ALIGN.RIGHT)
 
     # ══ 2. 한 장 요약 ════════════════════════════════════════
     n += 1
@@ -257,11 +279,12 @@ def build(team=TEAM, members=MEMBERS):
              f"스크립트 한 줄이면 매년 새 데이터로 다시 만드실 수 있습니다.")]
     for i, (tag, head, body) in enumerate(cols):
         x = M + i * 4.09
-        rect(sl, x, 4.02, 3.89, 2.62, WHITE, LINE)
-        rect(sl, x, 4.02, 3.89, .075, [ACC, BLUE, GREEN][i], radius=False)
-        tb(sl, x + .28, 4.28, 3.3, .25, tag, 11, True, [ACC, BLUE, GREEN][i])
-        tb(sl, x + .28, 4.58, 3.35, .5, head, 15.5, True, INK, line=1.25)
-        tb(sl, x + .28, 5.24, 3.35, 1.3, body, 11.5, False, MUTE, line=1.5)
+        col = [ACC, BLUE, GREEN][i]
+        rect(sl, x, 3.96, 3.89, 2.64, WHITE, LINE)
+        rect(sl, x, 3.96, 3.89, .075, col, radius=False)
+        tb(sl, x + .28, 4.20, 3.3, .25, tag, 11, True, col)
+        tb(sl, x + .28, 4.50, 3.35, .56, head, 15, True, INK, line=1.25)
+        tb(sl, x + .28, 5.24, 3.33, 1.24, body, 11, False, MUTE, line=1.55)
     footer(sl, n)
 
     # ══ 3. 문제 정의 ═════════════════════════════════════════
@@ -332,7 +355,7 @@ def build(team=TEAM, members=MEMBERS):
     # ══ 5. 아키텍처 ══════════════════════════════════════════
     n += 1
     sl = slide(prs, "ARCHITECTURE", "3-엔진 파이프라인",
-               "공공데이터 입력부터 정책 산출물까지 단일 스크립트로 연결된다.")
+               "공공데이터를 넣는 것부터 정책 자료가 나오기까지, 스크립트 하나로 이어집니다.")
     stages = [("INPUT", "공공데이터", "주민등록 인구\nLOCALDATA 인허가\n상가정보·생활SOC\n빈집·버스정류장", MUTE),
               ("① DIAGNOSE", "진단 엔진", "엔트로피 가중 CBI\nK-means 유형화\n5대 도메인 분해", ACC),
               ("② PREDICT", "예측 엔진", "LightGBM 회귀\nLeave-One-Zone-Out CV\nSHAP 요인분해", BLUE),
@@ -359,25 +382,40 @@ def build(team=TEAM, members=MEMBERS):
     n += 1
     sl = slide(prs, "DATA", "활용 데이터 명세",
                "전부 정식 공공 포털에서 합법적으로 내려받은 파일이며, 개인식별정보를 포함하지 않는다.")
-    ds = pd.DataFrame({
-        "데이터셋": ["주민등록 인구통계(연령별)", "지방행정 인허가데이터", "소상공인 상가(상권)정보",
-                  "생활SOC 표준데이터 6종", "빈집 통계", "버스정류소 현황"],
-        "제공기관": ["행정안전부", "행정안전부", "소상공인시장진흥공단",
-                  "공공데이터포털", "통계청 / 한국부동산원", "천안시"],
-        "출처 URL": ["jumin.mois.go.kr", "localdata.go.kr", "data.go.kr",
-                   "data.go.kr", "kosis.kr / emptyhomes.kr", "cheonan.go.kr"],
-        "주요 컬럼": ["행정구역, 총인구수, 연령대별 인구", "인허가일자, 폐업일자, 영업상태명, 소재지주소, 업태",
-                   "상권업종분류, 행정동명, 위경도", "시설명, 소재지주소, 위경도",
-                   "시군구, 빈집수, 빈집사유", "정류소명, 소재지"],
-        "산출 지표": ["인구증감률·청년비율·고령비율", "상권 순증감·폐업률·업종다양성",
-                   "사업체밀도·생활편의시설", "생활SOC 접근성·인구당 SOC수",
-                   "빈집률", "정류장 밀도"]})
-    tablette(sl, ds, M, 2.52, W - 2 * M, colw=[2.0, 1.3, 1.5, 2.6, 2.2], size=10.5, maxrows=6)
-    tb(sl, M, 4.86, W - 2 * M, .3, "수집 시점 및 데이터 상태", 13.5, True, INK)
+    SPEC = {
+        "인구": ("주민등록 인구통계 (연령별 인구현황)", "행정안전부", "jumin.mois.go.kr",
+               "행정구역 · 총인구수 · 연령대별 인구", "인구증감률 · 청년비율 · 고령비율"),
+        "상권": ("상가(상권)정보", "소상공인시장진흥공단", "data.go.kr",
+               "상권업종분류 · 행정동명 · 위경도", "km²당 사업체수 · 업종 다양성"),
+        "생활SOC": ("생활SOC 표준데이터 · 상가정보", "공공데이터포털", "data.go.kr",
+                  "시설명 · 소재지주소 · 위경도", "SOC 접근성 · 인구당 SOC수"),
+        "주거": ("국가데이터처_미거주주택(빈집)비율", "국가데이터처", "kosis.kr",
+               "시군구, 빈집수, 빈집비율", "빈집률"),
+        "이동성": ("정류소 위치 자료", "국토교통부 TAGO / 천안시", "data.go.kr",
+                "정류소명, 위경도", "km²당 정류장 수"),
+    }
+    used = prov[prov["상태"].isin(["REAL", "PARTIAL"])]["지표군"].tolist()
+    rows = [dict(zip(["데이터셋", "제공기관", "출처", "주요 컬럼", "산출 지표"], SPEC[k]))
+            for k in used if k in SPEC]
+    ds = pd.DataFrame(rows) if rows else pd.DataFrame(
+        columns=["데이터셋", "제공기관", "출처", "주요 컬럼", "산출 지표"])
+    tablette(sl, ds, M, 2.52, W - 2 * M, colw=[2.3, 1.7, 1.3, 2.5, 2.3],
+             size=10.5, maxrows=6, rh=.40)
+    miss = prov[prov["상태"] == "MISSING"]["지표군"].tolist()
+    if miss:
+        tb(sl, M, 2.52 + .42 * (len(rows) + 1) + .12, W - 2 * M, .3,
+           f"※ {', '.join(miss)} 지표군은 확보하지 못해 지수에서 제외했습니다 — "
+           "예시 값으로 채우지 않았습니다.", 11, False, AMBER)
+
+    tb(sl, M, 4.62, W - 2 * M, .3, "수집 시점 및 데이터 상태", 13.5, True, INK)
     pv = prov.copy()
-    pv["상태"] = pv["상태"].map({"REAL": "실데이터", "ILLUSTRATIVE": "예시(미투입)"})
-    tablette(sl, pv[["지표군", "상태", "출처", "비고"]], M, 5.2, W - 2 * M,
-             colw=[1.1, 1.3, 3.4, 3.4], size=10, maxrows=6)
+    pv["상태"] = pv["상태"].map({
+        "REAL": "실데이터", "PARTIAL": "실데이터(단위 한계)",
+        "MISSING": "미확보 — 지수 제외", "ILLUSTRATIVE": "예시(교체 필요)",
+    }).fillna(pv["상태"])
+    pv["비고"] = pv["비고"].astype(str).str.slice(0, 46)
+    tablette(sl, pv[["지표군", "상태", "출처", "비고"]], M, 4.96, W - 2 * M,
+             colw=[1.0, 1.5, 3.2, 3.6], size=9.5, maxrows=5, rh=.30)
     footer(sl, n)
 
     # ══ 7. 공간단위 설계 ═════════════════════════════════════
@@ -398,8 +436,8 @@ def build(team=TEAM, members=MEMBERS):
        "· 원성1·2동 → 원성동 / 불당1·2동 → 불당동 / 부성1·2동 → 부성동\n"
        "· 결과: 31개 행정동 → 분석 가능한 25개 생활권",
        11.5, False, INK, line=1.6)
-    tb(sl, M, 4.55, W - 2 * M, .3,
-       "왜 이 단계가 중요한가 — 생태학적 오류(ecological fallacy)의 사전 차단", 14, True, INK)
+    tb(sl, M, 4.52, W - 2 * M, .3,
+       "왜 이 단계가 중요한가 — 잘못된 배분이 결론을 바꾸기 때문입니다", 13.5, True, INK)
     tb(sl, M, 4.92, W - 2 * M, .78,
        "공간 키가 다른 데이터를 억지로 맞추려면 인구 비례 안분 같은 가정이 필요한데, 그 가정이 틀리면 지표 전체가 조용히 오염된다.\n"
        "격차 분석은 '어느 동이 더 나쁜가'를 다투는 작업이라 배분 오차가 곧 결론의 오차가 된다. 정밀도를 조금 포기하는 대신 "
@@ -442,33 +480,45 @@ def _part2(prs, S, cbi, ew, sites, prov, n):
     # ══ 8. 진단 방법론 ═══════════════════════════════════════
     n += 1
     sl = slide(prs, "METHOD · 02", "진단 엔진 — 엔트로피 가중 균형발전지수(CBI)",
-               "가중치를 연구자가 정하지 않는다. 데이터의 변별력에서 가중치를 유도한다.")
-    doms = [("인구활력", "5년 인구증감률 · 청년비율 · 고령비율", ACC),
-            ("경제활력", "인구천명당 사업체수 · 상권 순증감 · 폐업률 · 업종 다양성", AMBER),
-            ("생활SOC", "생활SOC 접근성(중력모형) · 인구천명당 SOC수", BLUE),
-            ("주거", "빈집 추정률 · 노후(30년+) 건물 비율", GREEN),
-            ("이동성", "km²당 버스정류장 수", C(0x8A, 0x7F, 0xB5))]
-    tb(sl, M, 2.5, 6.1, .3, f"5대 도메인 · {S['지표수']}개 지표", 14, True, INK)
-    for i, (d, ind, col) in enumerate(doms):
+               "어떤 지표를 더 중요하게 볼지 저희가 정하지 않았습니다. 데이터에서 자동으로 정해집니다.")
+    from config import INDICATORS, DOMAINS
+    palette = {"인구활력": ACC, "상권여건": AMBER, "생활SOC": GREEN,
+               "주거": VIOLET, "이동성": _hex("#7A7972")}
+    have = set(cbi.attrs.get("domains_used", [])) if hasattr(cbi, "attrs") else set()
+    if not have:      # CSV 로 읽은 표에는 attrs 가 없으므로 컬럼으로 판정
+        have = {d for d in DOMAINS if f"D_{d}" in cbi.columns
+                and pd.to_numeric(cbi[f"D_{d}"], errors="coerce").notna().any()}
+    tb(sl, M, 2.5, 6.1, .3,
+       f"{len(DOMAINS)}대 도메인 · 확보 {len(have)}개", 14, True, INK)
+    for i, dom in enumerate(DOMAINS):
+        inds = [v[1] for k, v in INDICATORS.items() if v[0] == dom]
         y = 2.92 + i * .62
-        rect(sl, M, y, .075, .48, col, radius=False)
-        tb(sl, M + .24, y + .02, 1.3, .28, d, 12.5, True, INK)
-        tb(sl, M + 1.66, y + .04, 4.35, .42, ind, 10.5, False, MUTE, line=1.35)
+        col = palette.get(dom, MUTE)
+        on = dom in have
+        rect(sl, M, y, .075, .48, col if on else _hex("#D8D8D4"), radius=False)
+        label = dom if on else f"{dom}  (미확보)"
+        tb(sl, M + .24, y + .02, 2.1, .3, label, 12.5 if on else 11, True,
+           INK if on else FAINT)
+        tb(sl, M + 2.34, y + .05, 3.7, .4, " · ".join(inds), 10, False,
+           MUTE if on else FAINT, line=1.35)
+
     rect(sl, M + 6.35, 2.5, 5.55, 3.55, LIGHT)
     tb(sl, M + 6.65, 2.74, 5, .3, "왜 엔트로피 가중법인가", 14, True, INK)
-    tb(sl, M + 6.65, 3.14, 5, .6,
-       "pⱼ = zⱼ / Σzⱼ    eⱼ = −k·Σ pⱼ ln pⱼ    wⱼ ∝ (1 − eⱼ)",
-       12.5, True, ACC, line=1.4, font="Consolas")
-    tb(sl, M + 6.65, 3.72, 5, 2.1,
-       "생활권 간 차이를 잘 벌리는 지표일수록(=엔트로피가 낮을수록) 큰 가중치를 받는다.\n\n"
-       "· 전문가 설문·AHP 방식과 달리 사람이 개입하지 않아 누가 돌려도 같은 값이 나온다\n"
-       "· 지표가 추가·제외돼도 가중치가 자동 재배분되어 지수가 계속 유효하다\n"
-       "· 심사·감사 과정에서 '왜 이 가중치인가'를 수식 한 줄로 답할 수 있다",
-       11.5, False, MUTE, line=1.55)
-    rect(sl, M, 6.12, W - 2 * M, .78, C(0xF0, 0xF7, 0xF2))
-    tb(sl, M + .3, 6.32, 11.5, .45,
-       "정직성 장치 — 데이터가 없어 산출 불가한 지표는 임의값으로 채우지 않고 지수에서 제외하며,\n"
-       "제외 사실을 로그와 산출물에 남긴다. 결측을 평균으로 메워 순위를 왜곡하는 흔한 실수를 구조적으로 막는다.",
+    for i, line in enumerate(["pⱼ = zⱼ ÷ Σzⱼ",
+                              "eⱼ = −k · Σ pⱼ ln pⱼ",
+                              "wⱼ ∝ (1 − eⱼ)"]):
+        tb(sl, M + 6.65, 3.12 + i * .30, 4.8, .26, line, 12, True, ACC,
+           font="Consolas")
+    tb(sl, M + 6.65, 4.08, 4.9, 1.5,
+       "생활권 간 차이를 잘 벌리는 지표일수록 큰 가중치를 받습니다.\n\n"
+       "· 사람이 개입하지 않아 누가 돌려도 같은 값이 나옵니다\n"
+       "· 지표가 늘거나 빠져도 가중치가 자동으로 다시 나뉩니다\n"
+       "· '왜 이 가중치인가'를 수식 한 줄로 답할 수 있습니다",
+       11, False, MUTE, line=1.5)
+    rect(sl, M, 6.12, W - 2 * M, .78, _hex("#EFF7F3"))
+    tb(sl, M + .3, 6.30, 11.5, .45,
+       "정직성 장치 — 확보하지 못한 지표는 임의값으로 채우지 않고 지수에서 제외하며, 그 사실을 산출물에 남깁니다.\n"
+       "결측을 평균으로 메워 순위를 왜곡하는 흔한 실수를 구조적으로 막기 위한 장치입니다.",
        11.5, False, INK, line=1.5)
     footer(sl, n)
 
@@ -479,14 +529,15 @@ def _part2(prs, S, cbi, ew, sites, prov, n):
                f"({S.get('지수범위', '')})")
     fit(sl, "01_CBI_랭킹.png", M, 2.28, 7.0, 4.5)
     x = M + 7.3
-    kpi_card(sl, x, 2.32, 4.55, 1.34, "신도심 ↔ 원도심 격차",
-             f'{S["격차배율"]}배', f'{S["신도심_CBI"]} vs {S["원도심_CBI"]}', ACC)
+    kpi_card(sl, x, 2.32, 4.55, 1.34, "가장 큰 권역 간 격차",
+             f'{S["격차배율"]}배',
+             f'{S.get("격차상위", "")} ↔ {S.get("격차하위", "")}', ACC)
     kpi_card(sl, x, 3.76, 4.55, 1.34, "CBI 지니계수",
              f'{S["지니계수"]}', f'변동계수 {S["변동계수"]}%', AMBER)
     kpi_card(sl, x, 5.20, 4.55, 1.34, "군집 유형화",
              f'{S["군집수"]}개 유형', f'실루엣 계수 {S["실루엣"]}', BLUE)
-    tb(sl, x, 6.62, 4.55, .32,
-       "쇠퇴단계는 CBI 순위가 아니라 다차원 패턴으로 분류된다.",
+    tb(sl, x, 6.60, 4.55, .32,
+       "쇠퇴단계는 순위가 아니라 여러 지표의 조합으로 나눕니다.",
        10, False, MUTE, line=1.35)
     footer(sl, n)
 
@@ -520,16 +571,16 @@ def _part2(prs, S, cbi, ew, sites, prov, n):
 
     # ══ 11. 격차 추이 ════════════════════════════════════════
     n += 1
-    sl = slide(prs, "FINDING · 03", "격차는 수렴하지 않고 벌어지고 있다",
-               "권역유형별 인구·사업체 궤적이 시간이 갈수록 분기한다. 개입하지 않으면 자동으로 좁혀지지 않는다.")
+    sl = slide(prs, "FINDING · 03", "시간이 갈수록 서로 다른 방향으로 갈라집니다",
+               "권역유형별 인구 궤적이 갈수록 벌어집니다. 그냥 두어서 저절로 좁혀지지는 않는 흐름으로 보입니다.")
     fit(sl, "03_격차추이.png", M, 2.5, W - 2 * M, 3.5)
     # 실데이터에서 관측된 반등 사례 — 제안의 전제를 뒷받침하는 대목
     up = cbi.nlargest(2, "pop_growth_5y")[["ztype", "pop_growth_5y"]]
     names = ", ".join(f"{z}({r.pop_growth_5y:+.0f}%)" for z, r in up.iterrows())
-    rect(sl, M, 5.92, W - 2 * M, .92, _hex("#EFF7F3"))
-    tb(sl, M + .3, 6.06, 11.5, .28,
+    rect(sl, M, 5.80, W - 2 * M, .94, _hex("#EFF7F3"))
+    tb(sl, M + .3, 5.94, 11.5, .28,
        "다만 '원도심이면 다 줄어든다'는 것은 아니었습니다.", 12.5, True, GREEN)
-    tb(sl, M + .3, 6.36, 11.5, .38,
+    tb(sl, M + .3, 6.24, 11.5, .38,
        f"5년 인구증감률 상위는 {names} — 두 곳 모두 신축 입주가 이어진 지역입니다.\n"
        "비어 있던 공간이 다시 주거로 쓰이면 사람이 돌아온다는 뜻으로 읽었습니다.",
        11, False, INK, line=1.4)
@@ -549,7 +600,7 @@ def _part2(prs, S, cbi, ew, sites, prov, n):
             ("이유까지 함께 — SHAP",
              "동네마다 어떤 항목 때문에 그렇게 나왔는지 나눠서 보여드립니다.")]
     bullets(sl, M, 2.5, 6.3, left, size=12, gap=.38)
-    rect(sl, M + 6.75, 2.55, 5.15, 3.6, WHITE, LINE)
+    rect(sl, M + 6.75, 2.55, 5.15, 2.95, WHITE, LINE)
     tb(sl, M + 7.05, 2.8, 4.5, .3, "성능 (현재 데이터 기준)", 13.5, True, INK)
     _ok = S.get("예측엔진", True)
     _hit = S.get("방향적중률")
@@ -563,10 +614,12 @@ def _part2(prs, S, cbi, ew, sites, prov, n):
         y = 3.16 + i * .42
         tb(sl, M + 7.05, y, 2.0, .3, k, 11.5, False, MUTE)
         tb(sl, M + 9.15, y, 2.5, .3, v, 12, True, INK)
-    tb(sl, M + 7.05, 5.68, 4.6, .5,
-       "베이스라인은 '지금과 달라지지 않는다(Δ=0)'는 예측입니다.\n"
-       "지금은 방향을 주로 맞히는 수준이며, 변화의 크기까지는 아직입니다(R²가 낮은 이유).",
-       10, False, MUTE, line=1.4)
+    rect(sl, M + 6.75, 5.62, 5.15, .96, LIGHT)
+    tb(sl, M + 7.0, 5.76, 4.7, .72,
+       "베이스라인은 '지금과 달라지지 않는다'는 예측입니다.\n"
+       "지금은 방향을 주로 맞히는 수준이고,\n"
+       "변화의 크기까지는 아직입니다(R²가 낮은 이유).",
+       9.5, False, MUTE, line=1.45)
     rect(sl, M, 6.32, W - 2 * M, .62, LIGHT)
     tb(sl, M + .3, 6.48, 11.5, .35,
        "데이터 상황에 따라 모드가 자동 전환된다 — 개·폐업 시계열이 확보되면 패널 예측(t→t+3)으로, "
@@ -576,7 +629,7 @@ def _part2(prs, S, cbi, ew, sites, prov, n):
     # ══ 13. 예측 결과 ════════════════════════════════════════
     n += 1
     sl = slide(prs, "FINDING · 04", "예측 결과 — 다음 3년, 어디를 봐야 하는가",
-               "대각선 위쪽은 현재보다 위험이 더 올라갈 것으로 예측된 생활권이다.")
+               "대각선 위쪽에 있는 곳일수록, 지금보다 앞으로 더 살펴볼 필요가 크다는 뜻입니다.")
     fit(sl, "04_조기경보.png", M, 2.3, 5.6, 4.35)
     fit(sl, "05_SHAP_요인분해.png", M + 5.8, 2.3, 6.1, 3.1)
     if not len(ew):
@@ -601,21 +654,27 @@ def _part3(prs, S, cbi, ew, sites, prov, n):
     n += 1
     sl = slide(prs, "MODEL", "순서 정하기 — 생활SOC 우선순위 계산",
                "예산을 얼마나 쓸지가 아니라, 한 곳을 놓는다면 어디가 가장 많은 분께 닿을지를 계산했습니다.")
-    tb(sl, M, 2.5, 6.2, .3, "MCLP — 최대커버링 입지문제", 14, True, INK)
-    tb(sl, M, 2.88, 6.2, .5,
-       "max  Σ  dᵢ · yᵢ      s.t.  yᵢ ≤ Σ xⱼ ,  Σ xⱼ = p\n"
-       "        i∈수요격자                    j∈Nᵢ",
-       12, True, ACC, line=1.5, font="Consolas")
-    bullets(sl, M, 3.52, 6.2, [
-        ("수요 dᵢ — 취약가중 인구",
-         "격자 인구에 고령화율과 CBI 열위를 가중한다. 같은 1명이라도 취약지역의 1명을 더 크게 센다."),
-        ("커버 Nᵢ — 반경 1.0km",
-         "도보 15분권. '15분 도시' 개념과 맞추고 행정경계를 넘는 이용도 반영한다."),
-        ("후보지 xⱼ — 빈집·노후 밀집 격자",
-         "새 땅을 사는 대신 이미 비어 있는 공간을 후보로 둔다. 도시재생 사업과 바로 접속된다."),
-        ("탐욕 근사의 보장",
-         "submodular 목적함수이므로 탐욕해가 최적해의 (1−1/e)≈63% 이상을 보장한다."),
-    ], size=11.5, gap=.38)
+    # 수식은 작게, 뜻은 크게 — 심사위원이 수식을 몰라도 읽히게 한다
+    rect(sl, M, 2.46, 6.2, 1.06, LIGHT)
+    tb(sl, M + .26, 2.60, 5.7, .24, "MCLP — 최대커버링 입지문제", 12.5, True, INK)
+    tb(sl, M + .26, 2.90, 5.7, .22,
+       "max  Σᵢ dᵢ·yᵢ      s.t.  yᵢ ≤ Σⱼ∈Nᵢ xⱼ,  Σⱼ xⱼ = p",
+       11, True, ACC, font="Consolas")
+    tb(sl, M + .26, 3.18, 5.7, .22,
+       "정해진 개수 안에서 가장 많은 분께 닿는 자리를 고르는 계산입니다.",
+       10.5, False, MUTE)
+
+    bullets(sl, M, 3.76, 6.2, [
+        ("수요 — 한 사람을 똑같이 세지 않습니다",
+         "고령 비율이 높고 지수가 낮은 동네의 1명을 더 크게 셉니다."),
+        ("도달 범위 — 반경 1.0km",
+         "걸어서 15분 거리입니다. 행정경계를 넘는 이용도 그대로 반영합니다."),
+        ("후보지 — 빈집·노후 밀집 격자",
+         "새 땅을 사는 대신 이미 비어 있는 공간을 후보로 둡니다."),
+        ("근거 — 탐욕해의 품질 보장",
+         "이 문제는 최적해의 63% 이상이 수학적으로 보장되는 형태입니다."),
+    ], size=11.5, gap=.44)
+
     rect(sl, M + 6.65, 2.5, 5.25, 3.05, _hex("#EFF7F3"))
     tb(sl, M + 6.95, 2.74, 4.7, .3, "형평성 제약을 넣은 이유", 13.5, True, GREEN)
     tb(sl, M + 6.95, 3.14, 4.7, 2.2,
@@ -695,13 +754,16 @@ def _slide_people(prs, S, cbi, n):
         return r.iloc[0]
     old_town = worst_in("원도심")
     rural = worst_in("농촌면", "aging_ratio", largest=True)
+    soc_low = worst_in("농촌면", "soc_access") if "soc_access" in cbi.columns else rural
     people = [
         ("원도심에 오래 사신 어르신", ACC,
          f"{old_town['zone']}은 인구가 5년 새 {old_town['pop_growth_5y']:+.0f}% 움직였고 "
          f"고령 비율은 {old_town['aging_ratio']:.0f}%입니다.\n"
          "시설은 가까이 있는데 함께 사시던 이웃이 줄어드는 동네입니다."),
         ("농촌면에서 아이 키우시는 부모님", C(0x8A, 0x7F, 0xB5),
-         f"{rural['zone']}은 고령 비율 {rural['aging_ratio']:.0f}%로 가장 높습니다.\n"
+         (f"{soc_low['zone']}의 생활SOC 접근성 점수는 {soc_low['soc_access']:.0f}점으로 "
+          f"가장 낮습니다.\n" if "soc_access" in cbi.columns else
+          f"{rural['zone']}은 가까운 시설이 가장 부족한 편입니다.\n") +
          "어린이집·도서관이 가까이 없으면 그 부담은 온전히 가정의 몫이 됩니다."),
         ("원도심에서 가게를 지켜오신 상인", AMBER,
          "오가는 분이 줄면 매출이 줄고, 문 닫는 가게가 늘면 오가는 분이 더 줍니다.\n"
@@ -812,19 +874,48 @@ def _slide_tail(prs, S, cbi, ew, sites, prov, n):
         tb(sl, M + 2.75, y + .46, 8.8, .42, "→ " + fix, 10.8, False, MUTE, line=1.4)
     footer(sl, n)
 
+    # ══ 용어 풀이 ════════════════════════════════════════════
+    n += 1
+    sl = slide(prs, "GLOSSARY", "이 문서에 나오는 말 풀이",
+               "전문용어를 쓰지 않고는 방법을 설명하기 어려워 몇 개를 썼습니다. 뜻을 한 줄씩 적어 둡니다.")
+    terms = [
+        ("CBI 균형발전지수", "여러 지표를 0~100점 하나로 합친 값. 높을수록 생활 여건이 나은 편입니다."),
+        ("엔트로피 가중법", "어떤 지표를 얼마나 중요하게 볼지 사람이 정하지 않고, "
+                       "동네 간 차이를 잘 드러내는 지표에 자동으로 더 큰 무게를 주는 방법입니다."),
+        ("중력모형 접근성", "시설이 멀수록 이용이 줄어든다고 보고 거리에 따라 점수를 매깁니다. "
+                       "옆 동네 시설도 걸어갈 수 있으면 함께 셉니다."),
+        ("K-means 군집", "비슷한 특성을 가진 동네끼리 자동으로 묶는 방법입니다."),
+        ("윈저화", "유난히 튀는 값 하나가 전체를 흔들지 않도록 위아래 5%를 경계값으로 눌러 주는 처리입니다."),
+        ("LightGBM", "여러 지표를 조합해 결과를 예측하는 기계학습 모형 중 하나입니다."),
+        ("Leave-One-Zone-Out", "한 동네를 빼고 학습한 뒤 그 동네를 맞혀 봅니다. "
+                              "처음 보는 동네에도 통하는지 확인하려는 검증 방식입니다."),
+        ("SHAP", "모형이 왜 그렇게 예측했는지, 어떤 항목이 얼마나 영향을 줬는지 나눠서 보여 주는 기법입니다."),
+        ("MCLP", "정해진 개수만 지을 수 있을 때 가장 많은 분께 닿는 자리를 고르는 문제입니다."),
+        ("지니계수", "값이 얼마나 고르게 퍼져 있는지 재는 수치입니다. "
+                  "0에 가까우면 고르고, 1에 가까우면 한쪽에 쏠려 있다는 뜻입니다."),
+    ]
+    for i, (term, mean) in enumerate(terms):
+        col, row = i // 5, i % 5
+        x = M + col * 6.1
+        y = 2.44 + row * .88
+        rect(sl, x, y, .06, .72, ACC if col == 0 else GREEN, radius=False)
+        tb(sl, x + .22, y, 5.6, .26, term, 12.5, True, INK)
+        tb(sl, x + .22, y + .30, 5.55, .44, mean, 10.5, False, MUTE, line=1.42)
+    footer(sl, n)
+
     # ══ 20. 재현성·윤리 ══════════════════════════════════════
     n += 1
     sl = slide(prs, "INTEGRITY", "재현성과 데이터 윤리", None)
     boxes = [("재현성", GREEN, [
-        "전 과정이 공개 스크립트로 실행 — `python3 src/run_all.py` 한 줄",
-        "난수 시드 고정(20260831) — 군집·모델 결과가 실행마다 동일",
-        "그림 8종·분석표 9종·대시보드가 같은 실행에서 함께 생성됨",
-        "지표 정의·가중치·모델 파라미터가 전부 코드에 명시"]),
+        "전 과정을 공개 스크립트 한 줄로 실행하실 수 있습니다 (python3 src/run_all.py)",
+        "난수 시드를 고정해 군집·모델 결과가 실행할 때마다 같습니다",
+        "그림 8종·분석표 9종·대시보드가 같은 실행에서 함께 만들어집니다",
+        "지표 정의·가중치·모델 설정이 전부 코드에 적혀 있습니다"]),
         ("데이터 윤리", BLUE, [
-        "정식 공공데이터 포털에서 내려받은 파일만 사용 — 크롤링 없음",
-        "상업 목적 민간데이터 무단 사용 없음",
-        "전 지표가 생활권 단위 집계값 — 개인식별정보 미취급",
-        "출처·수집시점·컬럼을 `00_데이터_출처.csv` 에 자동 기록"])]
+        "정식 공공데이터 포털에서 내려받은 파일만 썼습니다 (크롤링 없음)",
+        "상업 목적 민간데이터를 무단으로 쓰지 않았습니다",
+        "모든 지표가 생활권 단위 집계값이라 개인식별정보를 다루지 않습니다",
+        "출처·수집시점·컬럼을 분석표에 자동으로 기록합니다"])]
     for i, (title_, col, items) in enumerate(boxes):
         x = M + i * 6.1
         rect(sl, x, 2.32, 5.75, 2.72, WHITE, LINE)
@@ -833,17 +924,22 @@ def _slide_tail(prs, S, cbi, ew, sites, prov, n):
         for j, it in enumerate(items):
             tb(sl, x + .3, 3.0 + j * .52, .2, .28, "·", 13, True, col)
             tb(sl, x + .52, 3.0 + j * .52, 5.0, .45, it, 11, False, INK, line=1.4)
-    rect(sl, M, 5.26, W - 2 * M, 1.15, _hex("#FDF3F2"))
-    tb(sl, M + .32, 5.48, 11.4, .32, "실데이터 / 예시데이터 구분 장치", 13.5, True, ALERT)
-    tb(sl, M + .32, 5.84, 11.4, .5,
-       "파이프라인은 각 지표가 실데이터인지 예시(illustrative) 값인지를 매 실행마다 판정해 로그·대시보드·본 기획서에 표기한다.\n"
-       "예시 데이터를 실측치로 오인해 제출하는 사고를 막기 위한 장치이며, 실데이터를 넣으면 해당 표기가 자동으로 사라진다.",
-       11.5, False, INK, line=1.5)
-    tb(sl, M, 6.62, W - 2 * M, .3,
-       f"현재 상태: 실데이터 지표 {S['실데이터지표']}"
-       + ("  ·  전 지표 실데이터로 제출 가능" if S["전체실데이터"]
-          else "  ·  제출 전 실데이터 투입 후 재실행 필요"),
-       12, True, GREEN if S["전체실데이터"] else ALERT)
+    synth2 = "ILLUSTRATIVE" in set(prov["상태"]) if len(prov) else False
+    box_col = _hex("#FDF3F2") if synth2 else _hex("#EFF7F3")
+    tb_col = ALERT if synth2 else GREEN
+    rect(sl, M, 5.22, W - 2 * M, 1.30, box_col)
+    tb(sl, M + .32, 5.42, 11.4, .30, "확보한 데이터만으로 산출합니다", 13.5, True, tb_col)
+    tb(sl, M + .32, 5.76, 11.4, .48,
+       "확보하지 못한 지표는 임의값이나 예시 값으로 채우지 않고 지수에서 제외합니다.\n"
+       "파이프라인이 매 실행마다 지표별 상태를 판정해 로그·대시보드·본 기획서에 함께 표기하므로,\n"
+       "이 문서의 어떤 수치도 채워 넣은 값이 아닙니다.",
+       11.5, False, INK, line=1.45)
+    miss2 = prov[prov["상태"] == "MISSING"]["지표군"].tolist()
+    tb(sl, M + .32, 6.62, 11.4, .28,
+       f"현재 상태 — 실데이터 지표군 {S['실데이터지표']}"
+       + (f"  ·  {', '.join(miss2)}은 미확보로 지수에서 제외" if miss2
+          else "  ·  전 지표군 확보 완료"),
+       11.5, True, tb_col)
     footer(sl, n)
     return n
 
