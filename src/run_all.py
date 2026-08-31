@@ -127,6 +127,15 @@ def main(n_sites: int = 12):
         except Exception as e:
             print(f"    · PDF 변환 건너뜀 ({e})")
 
+    # 제출용 압축 — 한글 파일명이 깨지지 않도록 반드시 스크립트로 만든다
+    print("\n▶ 제출용 압축")
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+        import make_submission
+        make_submission.build()
+    except SystemExit as e:
+        print(f"    · 압축 건너뜀 ({e})")
+
     print("\n" + BAR)
     print(f"  완료 ({time.time() - t0:.1f}s)   실데이터 지표: {n_real}/{len(prov)}")
     if features.has_synthetic():
@@ -139,7 +148,7 @@ def main(n_sites: int = 12):
     else:
         print("  ✅ 전 지표 실데이터 — 그대로 제출 가능")
     print("  산출물: outputs/figures/(8장) · outputs/tables/(9종) ·"
-          " deliverables/{dashboard.html, 기획서_*.pptx, 기획서_*.pdf}")
+          " deliverables/{기획서 pptx·pdf, dashboard.html, 제출용 zip}")
     print(BAR)
     return summary
 
