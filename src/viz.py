@@ -226,7 +226,7 @@ def fig_cbi_rank(cbi):
     mean = cbi["CBI"].mean()
     ax.axvline(mean, color=AXIS, ls=(0, (4, 3)), lw=1.1, zorder=1)
     ax.text(mean, -0.85, f" 시 평균 {mean:.0f}", color=INK_MUTE, fontsize=T_NOTE, va="center")
-    ax.set_xlim(0, 106); ax.set_xlabel("CBI 균형발전지수 (0~100)")
+    ax.set_xlim(0, 106)
     ax.grid(axis="y", visible=False); _spines(ax)
 
     top, bot = cbi.nlargest(3, "CBI"), cbi.nsmallest(6, "CBI")
@@ -238,8 +238,11 @@ def fig_cbi_rank(cbi):
     if bt: bits.append(f"하위 6곳은 모두 {bt}")
     if {"신도심", "원도심"} <= set(g.index):
         bits.append(f"권역 평균 신도심 {g['신도심']:.0f} ↔ 원도심 {g['원도심']:.0f}")
-    title(ax, f"천안시 {len(cbi)}개 생활권 균형발전지수",
-          " · ".join(bits) if bits else f"{len(cbi)}개 생활권 비교")
+    from cbi import index_label
+    label, scope = index_label(cbi)
+    ax.set_xlabel(f"{label} (0~100)")
+    title(ax, f"천안시 {len(cbi)}개 생활권 {label}",
+          (" · ".join(bits) + f"  |  {scope}") if bits else scope)
     legend(ax, set(d["ztype"]), loc="lower right", bbox_to_anchor=(1.0, 0.02))
     save(fig, "01_CBI_랭킹.png")
 

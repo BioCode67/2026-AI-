@@ -106,6 +106,8 @@ def compute(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     out.attrs["k"] = k
     out.attrs["indicators_used"] = keys
 
+    out.attrs["domains_used"] = [d for d in DOMAINS if f"D_{d}" in out.columns
+                                and out[f"D_{d}"].notna().any()]
     out = out.sort_values("CBI", ascending=False)
     out.reset_index().to_csv(TAB / "02_CBI_균형발전지수.csv", index=False, encoding="utf-8-sig")
     wt = w.rename("weight").to_frame()
@@ -115,6 +117,25 @@ def compute(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
         TAB / "03_엔트로피_가중치.csv", encoding="utf-8-sig")
     print(f"\n▶ CBI 산출 완료 — 군집 k={k}, 실루엣={sil:.3f}")
     return out, w
+
+
+def index_label(cbi: pd.DataFrame) -> tuple[str, str]:
+    """
+    확보한 도메인 수에 따라 지수 이름을 정직하게 바꾼다.
+
+    인구 축만 있는 상태에서 '균형발전지수'라고 부르면 이름과 내용이 어긋난다
+    (실제로 인구 축만 남기자 신축 입주로 인구가 는 두 곳이 1·2위가 되었다).
+    3개 도메인 이상을 확보했을 때만 '균형발전지수'로 부른다.
+    """
+    doms = [d for d in DOMAINS if f"D_{d}" in cbi.columns
+            and pd.to_numeric(cbi[f"D_{d}"], errors="coerce").notna().any()]
+    n = len(doms)
+    if n >= 3:
+        return "CBI 균형발전지수", f"{n}개 도메인 · {len(cbi.attrs.get('indicators_used', []))}개 지표"
+    if n == 2:
+        return "생활여건지수(잠정)", f"{'·'.join(doms)} 2개 도메인만 확보 — 확장 예정"
+    return f"{doms[0] if doms else '단일'}지수(잠정)", \
+           f"{doms[0] if doms else '?'} 도메인만 확보 — 균형발전지수로 부르기에는 이릅니다"
 
 
 def gap_stats(cbi: pd.DataFrame) -> dict:

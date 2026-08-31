@@ -26,6 +26,8 @@ def main(n_sites: int = 12):
     zone_raw, panels = features.build_zone_table()
     cbi, weights = cbi_mod.compute(zone_raw)
     gaps = cbi_mod.gap_stats(cbi)
+    idx_label, idx_scope = cbi_mod.index_label(cbi)
+    print(f"    · 지수 명칭: {idx_label}  ({idx_scope})")
 
     panel = forecast.build_panel(panels, cbi.reset_index())
     forecast_ok, res, metrics, shap_glob, shap_local = True, None, {}, None, None
@@ -75,6 +77,8 @@ def main(n_sites: int = 12):
 
     summary = dict(
         생활권수=len(cbi), 지표수=len(weights),
+        지수명=idx_label, 지수범위=idx_scope,
+        도메인수=len(cbi.attrs.get("domains_used", [])),
         신도심_CBI=round(gaps["신도심평균"], 1), 원도심_CBI=round(gaps["원도심평균"], 1),
         격차배율=round(gaps["배율"], 2), 지니계수=round(gaps["지니"], 3),
         변동계수=round(gaps["변동계수"], 1),
