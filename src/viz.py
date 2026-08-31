@@ -399,9 +399,10 @@ def fig_shap(glob, L, res):
         axes[0].text(v * 1.03, i, f"{v:.1f}", va="center", fontsize=T_NOTE, color=INK_2)
     axes[0].set_yticks(range(len(g)), [nm(i) for i in g.index])
     axes[0].set_xlim(0, g.max() * 1.16); axes[0].set_ylim(-.7, len(g) - .3)
-    axes[0].set_xlabel("평균 |SHAP|"); axes[0].grid(axis="y", visible=False)
+    axes[0].set_xlabel("예측에 쓰인 정도 (평균 기여도)")
+    axes[0].grid(axis="y", visible=False)
     _spines(axes[0])
-    axes[0].set_title("어떤 항목이 변화를 설명하는가", loc="left", fontsize=12.5, pad=10)
+    axes[0].set_title("어떤 항목이 예측에 많이 쓰였나", loc="left", fontsize=12.5, pad=10)
 
     top = res.nlargest(8, "risk_pred")["zone"].tolist()
     cols = glob.head(8).index.tolist()
@@ -417,8 +418,8 @@ def fig_shap(glob, L, res):
     axes[1].tick_params(which="minor", length=0); axes[1].grid(which="major", visible=False)
     for s in axes[1].spines.values():
         s.set_visible(False)
-    colorbar(fig, im, axes[1], "SHAP 기여도", shrink=.82)
-    axes[1].set_title("위험 상위 생활권의 요인 분해  (붉을수록 위험을 끌어올린 항목)",
+    colorbar(fig, im, axes[1], "위험을 올림(빨강) / 낮춤(파랑)", shrink=.82)
+    axes[1].set_title("동네별로 어떤 항목이 위험을 끌어올렸나",
                       loc="left", fontsize=12.5, pad=10)
     note(fig, "→ 같은 '고위험'이라도 원인이 달라, 동네마다 필요한 도움이 다를 수 있습니다.")
     save(fig, "05_SHAP_요인분해.png")
