@@ -83,26 +83,35 @@ def fit(sl, name, x, y, bw, bh):
 
 
 def bullets(sl, x, y, w, items, size=13.5, gap=.42, marker="▪"):
-    for i, (head, body) in enumerate(items):
-        yy = y + i * gap * (1 if not body else 1.62)
+    """항목 높이를 누적해 배치한다(줄 수가 다른 본문이 겹치지 않도록)."""
+    yy = y
+    for head, body in items:
         tb(sl, x, yy, .25, .3, marker, size, True, ACC)
-        tb(sl, x + .3, yy, w - .3, .3, head, size, True, INK)
+        tb(sl, x + .3, yy, w - .3, .28, head, size, True, INK)
+        h = .3
         if body:
-            tb(sl, x + .3, yy + .3, w - .3, .5, body, size - 1.5, False, MUTE, line=1.4)
+            bs = size - 1.5
+            lines = sum(max(1, int(len(ln) * bs / ((w - .3) * 72) * 1.02) + 1)
+                        for ln in body.split("\n"))
+            bh = lines * bs * 1.42 * 1.06 / 72
+            tb(sl, x + .3, yy + .3, w - .3, bh, body, bs, False, MUTE, line=1.42)
+            h += bh
+        yy += h + gap * .38
 
 
-def kpi_card(sl, x, y, w, h, lab, val, sub, accent=ACC):
+def kpi_card(sl, x, y, w, h, lab, val, sub, accent=ACC, vsize=24):
+    h = max(h, 1.34)                       # 라벨+값(24pt)+부제 2줄이 들어갈 최소 높이
     rect(sl, x, y, w, h, WHITE, LINE)
     rect(sl, x, y, .075, h, accent, radius=False)
-    tb(sl, x + .28, y + .2, w - .5, .25, lab, 11, True, MUTE)
-    tb(sl, x + .28, y + .48, w - .5, .45, val, 25, True, INK)
-    tb(sl, x + .28, y + h - .48, w - .5, .35, sub, 10.5, False, MUTE, line=1.3)
+    tb(sl, x + .28, y + .16, w - .5, .22, lab, 10.5, True, MUTE)
+    tb(sl, x + .28, y + .42, w - .5, .40, val, vsize, True, INK)
+    tb(sl, x + .28, y + .92, w - .5, .38, sub, 10, False, MUTE, line=1.32)
 
 
-def tablette(sl, df, x, y, w, colw=None, size=10.5, maxrows=10, head_bg=LIGHT):
+def tablette(sl, df, x, y, w, colw=None, size=10.5, maxrows=10, head_bg=LIGHT,
+             rh=.335):
     df = df.head(maxrows)
     nr, nc = len(df) + 1, len(df.columns)
-    rh = .335
     t = sl.shapes.add_table(nr, nc, In(x), In(y), In(w), In(rh * nr)).table
     if colw:
         tot = sum(colw)
@@ -154,7 +163,7 @@ def build(team="○○팀", members="홍길동"):
     rect(sl, 0, 0, .13, H, ACC, radius=False)
     tb(sl, 1.15, 1.55, 11, .35, "2026년 천안시 AI·데이터 기반 정책 아이디어 경진대회",
        13, True, C(0xE0, 0x8A, 0x8A))
-    tb(sl, 1.15, 2.08, 11.2, 1.5, "천안 균형발전 나침반", 54, True, WHITE, line=1.1)
+    tb(sl, 1.15, 2.08, 11.2, .95, "천안 균형발전 나침반", 54, True, WHITE, line=1.1)
     tb(sl, 1.15, 3.12, 11.2, .5, "Cheonan Balance Compass", 20, False,
        C(0x8A, 0x97, 0xA8))
     rect(sl, 1.15, 3.85, 5.6, .045, ACC, radius=False)
@@ -167,7 +176,7 @@ def build(team="○○팀", members="홍길동"):
         x = 1.15 + i * 3.55
         tb(sl, x, 5.72, 3.3, .25, lab, 10.5, True, C(0x6E, 0x7B, 0x8C))
         tb(sl, x, 6.0, 3.3, .3, val, 14, True, WHITE)
-    tb(sl, 1.15, 6.72, 8, .3, f"{team} · {members}", 12, False, C(0x8A, 0x97, 0xA8))
+    tb(sl, 1.15, 6.72, 5.4, .3, f"{team} · {members}", 12, False, C(0x8A, 0x97, 0xA8))
     if not real:
         tb(sl, W - M - 5.2, 6.72, 5.2, .3,
            "※ 일부 지표 예시 데이터 — 실데이터 재실행 후 제출", 10, True, AMBER,
@@ -185,7 +194,7 @@ def build(team="○○팀", members="홍길동"):
               else "다른 연도 인구 파일 투입 시 활성화", BLUE),
              ("투자 수혜", f'{S["신규수혜인구"]:,}명', f'{S["추천입지수"]}개소 · 커버리지 +{S["커버리지개선"]}%p', GREEN)]
     for i, (a, b, c, col) in enumerate(cards):
-        kpi_card(sl, M + i * 3.06, 2.28, 2.86, 1.42, a, b, c, col)
+        kpi_card(sl, M + i * 3.06, 2.26, 2.86, 1.40, a, b, c, col, vsize=22)
     cols = [("문제", "한 도시 안의 이중격차",
              "서북부 신도심은 팽창하는데 동남부 원도심은 비어간다.\n"
              "그런데 재생·SOC 사업지 선정은 여전히 정성평가와\n사후 대응에 의존한다."),
@@ -331,15 +340,14 @@ def build(team="○○팀", members="홍길동"):
        11.5, False, INK, line=1.6)
     tb(sl, M, 4.55, W - 2 * M, .3,
        "왜 이 단계가 중요한가 — 생태학적 오류(ecological fallacy)의 사전 차단", 14, True, INK)
-    tb(sl, M, 4.95, W - 2 * M, 1.0,
-       "공간 키가 다른 데이터를 억지로 맞추려면 인구 비례 안분 같은 가정을 넣어야 하는데, 그 가정이 틀리면 "
-       "지표 전체가 조용히 오염된다. 특히 격차 분석은 '어느 동이 더 나쁜가'를 다투는 작업이라, 배분 오차가 곧 결론의 오차가 된다.\n"
-       "우리는 정밀도를 조금 포기하는 대신 배분 가정을 아예 쓰지 않는 쪽을 택했다. "
-       "25개 생활권은 천안시 생활권계획·주민센터 관할과도 대체로 일치해 정책 집행 단위로도 그대로 쓸 수 있다.",
-       12.5, False, MUTE, line=1.6)
+    tb(sl, M, 4.92, W - 2 * M, .78,
+       "공간 키가 다른 데이터를 억지로 맞추려면 인구 비례 안분 같은 가정이 필요한데, 그 가정이 틀리면 지표 전체가 조용히 오염된다.\n"
+       "격차 분석은 '어느 동이 더 나쁜가'를 다투는 작업이라 배분 오차가 곧 결론의 오차가 된다. 정밀도를 조금 포기하는 대신 "
+       "배분 가정을 아예 쓰지 않는 쪽을 택했다.",
+       12, False, MUTE, line=1.5)
     grp = cbi.groupby("ztype")["zone"].apply(lambda s: ", ".join(s.head(6))).reset_index()
     grp.columns = ["권역유형", "소속 생활권"]
-    tablette(sl, grp, M, 6.05, W - 2 * M, colw=[1.2, 6.0], size=10, maxrows=5)
+    tablette(sl, grp, M, 5.62, W - 2 * M, colw=[1.2, 6.0], size=9.5, maxrows=5, rh=.30)
     footer(sl, n)
 
     n = _part2(prs, S, cbi, ew, sites, prov, n)
@@ -362,8 +370,8 @@ def _part2(prs, S, cbi, ew, sites, prov, n):
     for i, (d, ind, col) in enumerate(doms):
         y = 2.92 + i * .62
         rect(sl, M, y, .075, .48, col, radius=False)
-        tb(sl, M + .24, y + .02, 1.4, .3, d, 12.5, True, INK)
-        tb(sl, M + 1.6, y + .05, 4.4, .4, ind, 10.5, False, MUTE, line=1.35)
+        tb(sl, M + .24, y + .02, 1.3, .28, d, 12.5, True, INK)
+        tb(sl, M + 1.66, y + .04, 4.35, .42, ind, 10.5, False, MUTE, line=1.35)
     rect(sl, M + 6.35, 2.5, 5.55, 3.55, LIGHT)
     tb(sl, M + 6.65, 2.74, 5, .3, "왜 엔트로피 가중법인가", 14, True, INK)
     tb(sl, M + 6.65, 3.14, 5, .6,
@@ -388,16 +396,15 @@ def _part2(prs, S, cbi, ew, sites, prov, n):
                f"최상위 {S['최고']}점, 최하위 {S['최저']}점. 같은 시(市) 안의 격차다.")
     fit(sl, "01_CBI_랭킹.png", M, 2.28, 7.0, 4.5)
     x = M + 7.3
-    kpi_card(sl, x, 2.35, 4.55, 1.12, "신도심 ↔ 원도심 격차",
+    kpi_card(sl, x, 2.32, 4.55, 1.34, "신도심 ↔ 원도심 격차",
              f'{S["격차배율"]}배', f'{S["신도심_CBI"]} vs {S["원도심_CBI"]}', ACC)
-    kpi_card(sl, x, 3.6, 4.55, 1.12, "CBI 지니계수",
+    kpi_card(sl, x, 3.76, 4.55, 1.34, "CBI 지니계수",
              f'{S["지니계수"]}', f'변동계수 {S["변동계수"]}%', AMBER)
-    kpi_card(sl, x, 4.85, 4.55, 1.12, "군집 유형화",
+    kpi_card(sl, x, 5.20, 4.55, 1.34, "군집 유형화",
              f'{S["군집수"]}개 유형', f'실루엣 계수 {S["실루엣"]}', BLUE)
-    tb(sl, x, 6.18, 4.55, .7,
-       "쇠퇴단계는 CBI 순위가 아니라 12개 지표의 다차원 패턴으로 분류한다.\n"
-       "CBI가 조금 높아도 쇠퇴 패턴이면 낮은 단계로 잡힌다.",
-       10.5, False, MUTE, line=1.45)
+    tb(sl, x, 6.62, 4.55, .32,
+       "쇠퇴단계는 CBI 순위가 아니라 다차원 패턴으로 분류된다.",
+       10, False, MUTE, line=1.35)
     footer(sl, n)
 
     # ══ 10. 핵심 인사이트 ════════════════════════════════════
@@ -445,11 +452,11 @@ def _part2(prs, S, cbi, ew, sites, prov, n):
              "예산 편성이 1년, 사업 착수가 1~2년 걸리므로 3년은 실제 개입 가능한 최소 선행폭이다."),
             ("모델", "LightGBM 회귀 — 지표 수 대비 표본이 적어 규제를 강하게 걸고 얕은 트리를 쓴다."),
             ("검증 — Leave-One-Zone-Out CV",
-             "같은 생활권이 학습·검증에 동시에 들어가지 않게 한다. 공간 자기상관 때문에\n"
-             "무작위 분할을 쓰면 성능이 부풀려지는데, 이를 원천 차단한 설계다."),
+             "같은 생활권이 학습·검증에 동시에 들어가지 않게 한다. 공간 자기상관 탓에\n"
+             "무작위 분할은 성능을 부풀리는데, 이를 원천 차단한 설계다."),
             ("해석 — SHAP",
-             "생활권마다 위험을 밀어올린 요인을 분해한다. 모델 출력이 곧 사업 제안서의 근거가 된다.")]
-    bullets(sl, M, 2.55, 6.3, left, size=12.5, gap=.5)
+             "생활권마다 위험을 밀어올린 요인을 분해한다. 모델 출력이 곧 근거 문서가 된다.")]
+    bullets(sl, M, 2.5, 6.3, left, size=12, gap=.38)
     rect(sl, M + 6.75, 2.55, 5.15, 3.6, WHITE, LINE)
     tb(sl, M + 7.05, 2.8, 4.5, .3, "성능 (현재 데이터 기준)", 13.5, True, INK)
     _ok = S.get("예측엔진", True)
@@ -502,17 +509,16 @@ def _part3(prs, S, cbi, ew, sites, prov, n):
        "max  Σ  dᵢ · yᵢ      s.t.  yᵢ ≤ Σ xⱼ ,  Σ xⱼ = p\n"
        "        i∈수요격자                    j∈Nᵢ",
        12, True, ACC, line=1.5, font="Consolas")
-    bullets(sl, M, 3.62, 6.2, [
+    bullets(sl, M, 3.52, 6.2, [
         ("수요 dᵢ — 취약가중 인구",
-         "격자별 인구에 고령화율과 CBI 열위를 가중해, 같은 1명이라도 취약한 지역의 1명을 더 크게 센다."),
+         "격자 인구에 고령화율과 CBI 열위를 가중한다. 같은 1명이라도 취약지역의 1명을 더 크게 센다."),
         ("커버 Nᵢ — 반경 1.0km",
-         "도보 15분권. '15분 도시' 개념과 맞추고, 행정경계를 넘는 이용도 그대로 반영한다."),
+         "도보 15분권. '15분 도시' 개념과 맞추고 행정경계를 넘는 이용도 반영한다."),
         ("후보지 xⱼ — 빈집·노후 밀집 격자",
-         "새 땅을 사는 대신 이미 비어 있는 공간을 후보로 둔다. 도시재생 사업과 그대로 접속된다."),
+         "새 땅을 사는 대신 이미 비어 있는 공간을 후보로 둔다. 도시재생 사업과 바로 접속된다."),
         ("탐욕 근사의 보장",
-         "목적함수가 submodular이므로 탐욕해는 최적해의 (1−1/e)≈63% 이상을 보장한다.\n"
-         "정수계획을 풀지 않고도 근거 있는 순서를 즉시 낼 수 있다."),
-    ], size=12, gap=.47)
+         "submodular 목적함수이므로 탐욕해가 최적해의 (1−1/e)≈63% 이상을 보장한다."),
+    ], size=11.5, gap=.38)
     rect(sl, M + 6.65, 2.5, 5.25, 3.05, C(0xF0, 0xF7, 0xF2))
     tb(sl, M + 6.95, 2.74, 4.7, .3, "형평성 제약을 넣은 이유", 13.5, True, GREEN)
     tb(sl, M + 6.95, 3.14, 4.7, 2.2,
