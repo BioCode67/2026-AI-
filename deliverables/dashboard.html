@@ -103,9 +103,11 @@ footer{color:var(--mute);font-size:12.6px;margin-top:38px;padding-top:22px;borde
 
 <section>
   <h2><span class="n">04</span>활용 데이터 및 재현성</h2>
+  <div class="note"><b>지표 산출 원칙.</b> 확보하지 못한 지표는 <b>예시 값으로 채우지 않고 지수에서 제외</b>합니다.
+  아래 표의 상태가 곧 이 문서에 쓰인 근거의 전부이며, 미확보 항목은 어떤 수치로도 대체되지 않았습니다.</div>
   <p class="lede">전 과정을 공개 스크립트로 재현하실 수 있습니다. <code>python3 src/run_all.py</code> 한 줄이면
   표·그림·대시보드가 똑같이 다시 만들어집니다.</p>
-  <div class="tw"><table class=""><thead><tr><th>지표군</th><th>상태</th><th>출처</th><th>비고</th><th>행수</th></tr></thead><tbody><tr><td>인구</td><td>REAL</td><td>행안부 주민등록 인구통계(jumin.mois.go.kr)</td><td>2021~2026년(5년환산), 25개 생활권, 연령기준 2026년07월</td><td>335</td></tr><tr><td>상권</td><td>MISSING</td><td>미확보</td><td>상가정보 또는 LOCALDATA 인허가 파일을 넣으면 산출됩니다</td><td>0</td></tr><tr><td>생활SOC</td><td>MISSING</td><td>미확보</td><td>facility_*.csv 또는 상가정보를 넣으면 산출됩니다</td><td>0</td></tr><tr><td>주거</td><td>MISSING</td><td>미확보</td><td>빈집 통계(천안시 동남구·서북구 단위)를 넣으면 생활권 지표로 산출됩니다</td><td>0</td></tr><tr><td>이동성</td><td>MISSING</td><td>미확보</td><td>정류소 위치/주소가 담긴 파일이 필요합니다(노선 현황만으로는 불가)</td><td>0</td></tr></tbody></table></div>
+  <div class="tw"><table class=""><thead><tr><th>지표군</th><th>상태</th><th>출처</th><th>비고</th></tr></thead><tbody><tr><td>인구</td><td>실데이터</td><td>행안부 주민등록 인구통계(jumin.mois.go.kr)</td><td>2021~2026년(5년환산), 25개 생활권, 연령기준 2026년07월</td></tr><tr><td>상권</td><td>미확보 — 지수에서 제외</td><td>미확보</td><td>상가정보 또는 LOCALDATA 인허가 파일을 넣으면 산출됩니다</td></tr><tr><td>생활SOC</td><td>미확보 — 지수에서 제외</td><td>미확보</td><td>facility_*.csv 또는 상가정보를 넣으면 산출됩니다</td></tr><tr><td>주거</td><td>미확보 — 지수에서 제외</td><td>미확보</td><td>빈집 통계(천안시 동남구·서북구 단위)를 넣으면 생활권 지표로 산출됩니다</td></tr><tr><td>이동성</td><td>미확보 — 지수에서 제외</td><td>미확보</td><td>정류소 위치/주소가 담긴 파일이 필요합니다(노선 현황만으로는 불가)</td></tr></tbody></table></div>
   <div class="note">정식 공공데이터 포털에서 합법적으로 내려받은 파일만 사용했습니다.
   크롤링이나 상업용 민간데이터는 쓰지 않았고, 개인을 식별할 수 있는 정보는 다루지 않았습니다
   (모든 지표가 생활권 단위 집계값입니다).</div>
