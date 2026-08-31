@@ -777,29 +777,66 @@ def _illustrative_old_building():
 #  5) 이동성  ─ 버스정류장
 # ═════════════════════════════════════════════════════════════
 def load_transit() -> pd.DataFrame:
+    """
+    정류장 밀도.
+    주소가 있으면 주소로, 없으면 **좌표로** 생활권을 판정한다.
+    (국토부 TAGO 버스정류소정보 API 는 주소 없이 위경도만 준다)
+    """
     df = load_stack("bus_stop")
     out = base_frame().set_index("zone")
     if df is not None:
         try:
-            adr = find_col(df, "소재지", "주소", "정류소명", "위치")
-            if adr:
-                d = only_cheonan(df).copy()
-                d["zone"] = d[adr].map(zone_from_address)
-                g = d[d.zone.notna()].groupby("zone").size()
-                out["transit_density"] = g / pd.Series(AREA_KM2)
-                note("이동성", "REAL", "버스정류소 현황", f"{int(g.sum())}개소", len(d))
+            z = _transit_zones(df)
+            if z is not None and z.notna().sum() >= 50:
+                g = z.value_counts()
+                out["transit_density"] = (g / pd.Series(AREA_KM2)).reindex(out.index)
+                note("이동성", "REAL", "국토교통부 TAGO 버스정류소정보 / 정류소 현황",
+                     f"{int(z.notna().sum()):,}개소 · {z.nunique()}개 생활권", len(df))
                 return out.reset_index()
+            log("    ! 정류소를 천안 생활권에 충분히 매칭하지 못했습니다"
+                f" (매칭 {0 if z is None else int(z.notna().sum())}개)")
         except Exception as e:
             log(f"    ! bus_stop 파싱 실패({e})")
     if STRICT:
         out["transit_density"] = np.nan
         note("이동성", "MISSING", "미확보",
-             "정류소 위치/주소가 담긴 파일이 필요합니다(노선 현황만으로는 불가)")
+             "정류소 위치(좌표 또는 주소)가 담긴 파일이 필요합니다(노선 현황만으로는 불가)")
         return out.reset_index()
     rng = np.random.default_rng(RANDOM_SEED + 5)
     out["transit_density"] = pd.Series({
-        z: max(0.25, (2.0 + PROFILE[z][4] * 9) * rng.normal(1, .12) *
-               (1 if AREA_KM2[z] < 25 else 0.16)) for z in ZONE_NAMES})
+        z_: max(0.25, (2.0 + PROFILE[z_][4] * 9) * rng.normal(1, .12) *
+                (1 if AREA_KM2[z_] < 25 else 0.16)) for z_ in ZONE_NAMES})
     note("이동성", "ILLUSTRATIVE", "예시 생성(seed=%d)" % (RANDOM_SEED + 5),
          "data/raw/bus_stop.csv 투입 시 자동 대체")
     return out.reset_index()
+
+
+def _transit_zones(df: pd.DataFrame) -> "pd.Series | None":
+    """정류소 행 → 생활권. 주소 우선, 없으면 좌표 최근접 생활권."""
+    adr = find_col(df, "소재지", "주소", "위치", "정류소위치")
+    if adr is not None:
+        z = df[adr].map(zone_from_address)
+        if z.notna().sum() >= 50:
+            return z
+    la = find_col(df, "gpslati", "위도", "latitude", "lat", "gpsylat", "y좌표")
+    lo = find_col(df, "gpslong", "경도", "longitude", "lon", "gpsxlong", "x좌표")
+    if la is None or lo is None:
+        return None
+    lat = pd.to_numeric(df[la], errors="coerce")
+    lon = pd.to_numeric(df[lo], errors="coerce")
+    m = lat.between(36.5, 37.1) & lon.between(126.9, 127.5)     # 천안 일대만
+    if m.sum() < 50:
+        return None
+    zs = list(CENTROID); cla = np.array([CENTROID[z][0] for z in zs])
+    clo = np.array([CENTROID[z][1] for z in zs])
+    R = 6371.0
+    p1 = np.radians(lat[m].values)[:, None]; p2 = np.radians(cla)[None, :]
+    dp = p2 - p1; dl = np.radians(clo[None, :] - lon[m].values[:, None])
+    a = np.sin(dp / 2) ** 2 + np.cos(p1) * np.cos(p2) * np.sin(dl / 2) ** 2
+    d = 2 * R * np.arcsin(np.sqrt(a))
+    near = np.array(zs)[d.argmin(1)]
+    # 어느 생활권 중심에서도 지나치게 먼 점은 천안 밖으로 보고 제외
+    near = np.where(d.min(1) <= 12.0, near, None)
+    out = pd.Series(index=df.index, dtype=object)
+    out.loc[lat[m].index] = near
+    return out
