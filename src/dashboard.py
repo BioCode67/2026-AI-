@@ -36,8 +36,10 @@ def build(cbi, weights, res, shap_glob, sites, prov, S, gaps, panels):
     real = S["전체실데이터"]
     ok = S.get("예측엔진", True)
     badge = ('<span class="bdg ok">전 지표 실데이터</span>' if real else
-             f'<span class="bdg warn">예시 데이터 포함 · 실데이터 {S["실데이터지표"]}</span>')
-    warn = "" if real else (
+             f'<span class="bdg warn">실데이터 지표군 {S["실데이터지표"]} · '
+             '미확보 지표는 지수에서 제외</span>')
+    synth = any(v == "ILLUSTRATIVE" for v in prov["상태"]) if len(prov) else False
+    warn = "" if not synth else (
         '<div class="alert"><b>⚠ 데이터 상태 안내</b><br>'
         '아래 수치 중 일부는 공공데이터 미투입 구간을 <b>예시(illustrative)</b> 값으로 채운 결과입니다. '
         '<code>data/raw/</code> 에 실제 CSV를 넣고 <code>python3 src/run_all.py</code> 를 다시 실행하면 '
@@ -50,7 +52,10 @@ def build(cbi, weights, res, shap_glob, sites, prov, S, gaps, panels):
             (f'{S["방향적중률"]:.0f}%' if S.get("방향적중률") == S.get("방향적중률") else "—")
             if ok else "데이터 대기",
             f'베이스라인 대비 MAE {S["MAE_개선율"]:+.1f}%' if ok else "인구 파일 필요"),
-           ("추천 투자 수혜", f'{S["신규수혜인구"]:,}명', f'{S["추천입지수"]}개소 · 커버리지 +{S["커버리지개선"]}%p')]
+           ("추천 투자 수혜",
+            f'{S["신규수혜인구"]:,}명' if S.get("처방엔진", True) else "데이터 대기",
+            (f'{S["추천입지수"]}개소 · 커버리지 +{S["커버리지개선"]}%p'
+             if S.get("처방엔진", True) else "생활SOC 위치 자료 필요"))]
     kpis = "".join(f'<div class="kpi"><span class="lab">{a}</span>'
                    f'<span class="val">{b}</span><span class="sub">{c}</span></div>'
                    for a, b, c in kpi)
@@ -74,8 +79,8 @@ def build(cbi, weights, res, shap_glob, sites, prov, S, gaps, panels):
     w["가중치"] = (w["가중치"] * 100).round(1).astype(str) + "%"
     w = w.sort_values("가중치", ascending=False)[["도메인", "지표", "가중치"]]
 
-    st = sites[["순위", "생활권", "시설유형", "신규수혜인구", "커버리지개선률", "빈집률", "CBI"]].copy() \
-        if len(sites) else pd.DataFrame()
+    cols = ["순위", "생활권", "시설유형", "신규수혜인구", "커버리지개선률", "빈집률", "CBI"]
+    st = sites[[c for c in cols if c in sites.columns]].copy() if len(sites) else pd.DataFrame()
     if len(st):
         st["신규수혜인구"] = st["신규수혜인구"].map("{:,}".format)
 

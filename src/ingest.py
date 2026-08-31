@@ -16,7 +16,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import (RAW, ZONE_NAMES, ZONE_GU, ZONE_TYPE, BDONG_KEYS_SORTED,
-                    BDONG2ZONE, HDONG_KEYS_SORTED, HDONG2ZONE, RANDOM_SEED)
+                    BDONG2ZONE, HDONG_KEYS_SORTED, HDONG2ZONE, RANDOM_SEED,
+                    STRICT)
 
 ENCODINGS = ("utf-8-sig", "cp949", "euc-kr", "utf-8", "latin1")
 PROVENANCE: dict[str, dict] = {}      # 지표군 → {status, source, note, rows}
@@ -28,7 +29,8 @@ def log(msg): print(msg, flush=True)
 def note(key, status, source, detail="", rows=0):
     PROVENANCE[key] = dict(status=status, source=source, detail=detail, rows=rows)
     badge = {"REAL": "\033[92m[REAL]\033[0m",
-             "PARTIAL": "\033[96m[PARTIAL]\033[0m"}.get(
+             "PARTIAL": "\033[96m[PARTIAL]\033[0m",
+             "MISSING": "\033[90m[미확보]\033[0m"}.get(
                  status, "\033[93m[ILLUSTRATIVE]\033[0m")
     log(f"  {badge} {key:<14} {source} {('· ' + detail) if detail else ''}")
 
@@ -317,6 +319,13 @@ def _finish_population(df, panel, age_cols, num, last, stamp=None):
 
 
 def _illustrative_population():
+    if STRICT:
+        out = base_frame()
+        for c in ("pop", "youth_ratio", "aging_ratio", "pop_growth_5y"):
+            out[c] = np.nan
+        note("인구", "MISSING", "미확보",
+             "data/raw/pop_jumin*.csv 를 넣으면 산출됩니다")
+        return out, pd.DataFrame(columns=["zone", "year", "pop"])
     rng = np.random.default_rng(RANDOM_SEED)
     rows, panel = [], []
     for z, (pk, gtone, atone, _, _) in PROFILE.items():
@@ -468,6 +477,13 @@ def _parse_business(df):
 
 
 def _illustrative_business():
+    if STRICT:
+        out = base_frame()
+        for c in ("active_biz", "biz_net_growth", "closure_rate", "biz_diversity"):
+            out[c] = np.nan
+        note("상권", "MISSING", "미확보",
+             "상가정보 또는 LOCALDATA 인허가 파일을 넣으면 산출됩니다")
+        return out, pd.DataFrame(columns=["zone", "year", "opened", "closed", "active"])
     rng = np.random.default_rng(RANDOM_SEED + 1)
     rows, panel = [], []
     for z, (pk, _, atone, btone, _) in PROFILE.items():
@@ -596,6 +612,13 @@ def _fill_missing_coords(P):
 
 
 def _illustrative_facilities():
+    if STRICT:
+        out = base_frame()
+        for soc in SOC_TYPES:
+            out[soc] = np.nan
+        note("생활SOC", "MISSING", "미확보",
+             "facility_*.csv 또는 상가정보를 넣으면 산출됩니다")
+        return out, pd.DataFrame(columns=["zone", "soc", "lat", "lon"])
     rng = np.random.default_rng(RANDOM_SEED + 2)
     rows, pts = [], []
     for z, (pk, _, _, _, stone) in PROFILE.items():
@@ -636,6 +659,12 @@ def load_housing(pop: pd.DataFrame) -> pd.DataFrame:
                 return out.reset_index()
         except Exception as e:
             log(f"    ! vacant_house 파싱 실패({e}) → 예시 데이터로 대체")
+    if STRICT:
+        out["vacancy_rate"] = np.nan
+        out["old_building"] = np.nan
+        note("주거", "MISSING", "미확보",
+             "빈집 통계(천안시 동남구·서북구 단위)를 넣으면 산출됩니다")
+        return out.reset_index()
     rng = np.random.default_rng(RANDOM_SEED + 3)
     out["vacancy_rate"] = pd.Series({
         z: np.clip(2.2 + PROFILE[z][2] * 13 - PROFILE[z][3] * 2 + rng.normal(0, .7), 0.6, 26)
@@ -717,6 +746,11 @@ def load_transit() -> pd.DataFrame:
                 return out.reset_index()
         except Exception as e:
             log(f"    ! bus_stop 파싱 실패({e})")
+    if STRICT:
+        out["transit_density"] = np.nan
+        note("이동성", "MISSING", "미확보",
+             "정류소 위치/주소가 담긴 파일이 필요합니다(노선 현황만으로는 불가)")
+        return out.reset_index()
     rng = np.random.default_rng(RANDOM_SEED + 5)
     out["transit_density"] = pd.Series({
         z: max(0.25, (2.0 + PROFILE[z][4] * 9) * rng.normal(1, .12) *

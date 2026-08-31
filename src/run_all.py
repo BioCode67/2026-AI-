@@ -42,13 +42,23 @@ def main(n_sites: int = 12):
             (FIG / f).unlink(missing_ok=True)
         metrics = dict(status="unavailable", reason=str(e))
 
-    sites = optimize.greedy_sites(cbi.reset_index(), panels["points"],
-                                  n_sites=n_sites)
+    try:
+        sites = optimize.greedy_sites(cbi.reset_index(), panels["points"],
+                                      n_sites=n_sites)
+        sites_ok = True
+    except optimize.InsufficientData as e:
+        sites, sites_ok = pd.DataFrame(), False
+        print(f"\n▶ 입지 최적화 \033[93m[건너뜀]\033[0m {e}")
+        for f in ("08_생활SOC_투자우선순위.csv",):
+            (TAB / f).unlink(missing_ok=True)
+        for f in ("06_SOC_사각지대.png", "07_투자입지_지도.png", "08_커버리지_곡선.png"):
+            (FIG / f).unlink(missing_ok=True)
 
     prov = features.provenance_table()
     all_real = features.is_all_real()
-    n_real = int((prov["상태"] == "REAL").sum())
-    viz.BADGE.update(on=not all_real,
+    n_real = int(prov["상태"].isin(["REAL", "PARTIAL"]).sum())
+    # 예시 값이 섞였을 때만 경고를 찍는다. 엄격 모드에서는 미확보 지표를 아예 빼므로 경고가 없다.
+    viz.BADGE.update(on=features.has_synthetic(),
                      txt="※ 일부 지표는 예시(illustrative) 데이터 — 실데이터 투입 시 자동 갱신")
 
     print("\n▶ 시각화 생성")
@@ -58,9 +68,10 @@ def main(n_sites: int = 12):
     if forecast_ok:
         viz.fig_earlywarn(res, cbi)
         viz.fig_shap(shap_glob, shap_local, res)
-    viz.fig_soc_gap(cbi)
-    viz.fig_site_map(sites, panels["points"], cbi)
-    viz.fig_coverage(sites)
+    if sites_ok:
+        viz.fig_soc_gap(cbi)
+        viz.fig_site_map(sites, panels["points"], cbi)
+        viz.fig_coverage(sites)
 
     summary = dict(
         생활권수=len(cbi), 지표수=len(weights),
@@ -79,6 +90,7 @@ def main(n_sites: int = 12):
         방향적중률=round(metrics.get("방향적중률", float("nan")), 0) if forecast_ok else None,
         모델_목표=metrics.get("target", ""),
         위험급등_생활권=res.nlargest(3, "risk_delta")["zone"].tolist() if forecast_ok else [],
+        처방엔진=sites_ok,
         추천입지수=len(sites),
         신규수혜인구=int(sites["신규수혜인구"].sum()) if len(sites) else 0,
         커버리지개선=round(float(sites["커버리지개선률"].sum()), 1) if len(sites) else 0,
@@ -107,10 +119,13 @@ def main(n_sites: int = 12):
 
     print("\n" + BAR)
     print(f"  완료 ({time.time() - t0:.1f}s)   실데이터 지표: {n_real}/{len(prov)}")
-    if not all_real:
-        need = prov[prov["상태"] != "REAL"]["지표군"].tolist()
+    if features.has_synthetic():
+        need = prov[prov["상태"] == "ILLUSTRATIVE"]["지표군"].tolist()
         print(f"  ⚠ 예시 데이터 사용 중: {', '.join(need)}")
-        print("    → docs/01_데이터_수집_가이드.md 대로 CSV를 넣고 다시 실행하면 전부 실데이터로 갱신됩니다.")
+    elif not all_real:
+        need = prov[prov["상태"] == "MISSING"]["지표군"].tolist()
+        print(f"  미확보 지표군: {', '.join(need)} — 지수에서 제외하고 산출했습니다(예시 값 없음)")
+        print("    → 파일을 넣고 다시 실행하면 해당 지표가 추가됩니다.")
     else:
         print("  ✅ 전 지표 실데이터 — 그대로 제출 가능")
     print("  산출물: outputs/figures/(8장) · outputs/tables/(9종) ·"

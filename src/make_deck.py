@@ -184,7 +184,10 @@ def build(team=TEAM, members=MEMBERS):
     _ewp = TAB / "04_쇠퇴조기경보_예측.csv"
     ew   = pd.read_csv(_ewp) if _ewp.exists() else pd.DataFrame(
         columns=["zone", "risk", "risk_pred", "risk_delta"])
-    sites = pd.read_csv(TAB / "08_생활SOC_투자우선순위.csv")
+    _sp = TAB / "08_생활SOC_투자우선순위.csv"
+    sites = pd.read_csv(_sp) if _sp.exists() else pd.DataFrame(
+        columns=["순위", "생활권", "시설유형", "신규수혜인구", "커버리지개선률",
+                 "빈집률", "CBI", "위도", "경도", "누적커버리지개선률"])
     real = S["전체실데이터"]
 
     prs = Presentation()
@@ -228,7 +231,10 @@ def build(team=TEAM, members=MEMBERS):
                else "—") if S.get("예측엔진", True) else "데이터 대기",
               f'베이스라인 대비 MAE {S["MAE_개선율"]:+.1f}%' if S.get("예측엔진", True)
               else "인구 파일 투입 시 활성화", BLUE),
-             ("투자 수혜", f'{S["신규수혜인구"]:,}명', f'{S["추천입지수"]}개소 · 커버리지 +{S["커버리지개선"]}%p', GREEN)]
+             ("투자 수혜",
+              f'{S["신규수혜인구"]:,}명' if S.get("처방엔진", True) else "데이터 대기",
+              (f'{S["추천입지수"]}개소 · 커버리지 +{S["커버리지개선"]}%p'
+               if S.get("처방엔진", True) else "생활SOC 위치 자료 필요"), GREEN)]
     for i, (a, b, c, col) in enumerate(cards):
         kpi_card(sl, M + i * 3.06, 2.26, 2.86, 1.40, a, b, c, col, vsize=22)
     cols = [("저희가 주목한 것", "한 도시 안에 생긴 생활여건의 차이",
@@ -599,7 +605,41 @@ def _part3(prs, S, cbi, ew, sites, prov, n):
     footer(sl, n)
 
     # ══ 15. 처방 결과 ════════════════════════════════════════
+    n = _slide_sites(prs, S, cbi, sites, n)
+
+    # ══ 16. 예산 배분 곡선 ═══════════════════════════════════
+    if len(sites):
+        n += 1
+        sl = slide(prs, "FINDING · 06", "어디서 멈춰도 근거가 남습니다",
+                   "한계효용 곡선이 있으면 예산이 조정돼도 '몇 개소까지가 합리적인가'를 답할 수 있습니다.")
+        fit(sl, "08_커버리지_곡선.png", M, 2.42, 7.2, 3.5)
+        fit(sl, "06_SOC_사각지대.png", M + 7.5, 2.42, 4.4, 3.5)
+        rect(sl, M, 6.1, W - 2 * M, .82, LIGHT)
+        tb(sl, M + .3, 6.3, 11.5, .5,
+           "예산 심의에서 자주 나오는 질문은 '왜 이 순서인가'와 '반만 하면 어떻게 되나'입니다.\n"
+           "이 곡선은 두 질문에 함께 답합니다. 좌측 그림의 좌상단(고령↑·SOC↓)이 먼저 살펴볼 구간입니다.",
+           12, False, INK, line=1.5)
+        footer(sl, n)
+
+    n = _slide_people(prs, S, cbi, n)
+    n = _slide_tail(prs, S, cbi, ew, sites, prov, n)
+    return n
+
+
+def _slide_sites(prs, S, cbi, sites, n):
     n += 1
+    if not len(sites):
+        sl = slide(prs, "FINDING · 05", "처방 결과 — 생활SOC 위치 자료 확보 후 산출",
+                   "커버리지 계산에는 기존 생활SOC의 위치가 필요합니다. 현재는 미확보 상태입니다.")
+        rect(sl, M, 2.6, W - 2 * M, 1.5, LIGHT)
+        tb(sl, M + .35, 2.86, 11.4, .32,
+           "설계와 코드는 완성되어 있고, 자료가 들어오면 즉시 산출됩니다.", 14.5, True, INK)
+        tb(sl, M + .35, 3.3, 11.4, .7,
+           "필요한 자료: 소상공인 상가(상권)정보 또는 공공데이터포털 생활SOC 표준데이터(위경도 포함)\n"
+           "산출물: 순위 · 생활권 · 시설유형 · 새로 닿는 인구 · 커버리지 개선폭이 담긴 표와 지도",
+           12.5, False, MUTE, line=1.5)
+        footer(sl, n)
+        return n
     sl = slide(prs, "FINDING · 05", "처방 결과 — 투자 우선순위",
                f"상위 {S['추천입지수']}개소 우선 투자 시 취약수요 커버리지 +{S['커버리지개선']}%p, "
                f"신규 수혜인구 약 {S['신규수혜인구']:,}명.")
@@ -611,21 +651,11 @@ def _part3(prs, S, cbi, ew, sites, prov, n):
     tb(sl, M + 5.6, 2.42, 6.3, .3, "AI 추천 투자 순위 (상위 10)", 13.5, True, INK)
     tablette(sl, st, M + 5.6, 2.8, 6.3, colw=[.7, 1.4, 1.2, 1.6, 1.4], size=10, maxrows=10)
     footer(sl, n)
+    return n
 
-    # ══ 16. 예산 배분 곡선 ═══════════════════════════════════
-    n += 1
-    sl = slide(prs, "FINDING · 06", "어디서 멈춰도 근거가 남는다",
-               "한계효용 체감 곡선이 있으면 예산이 깎여도 '몇 개소까지가 합리적인가'를 답할 수 있다.")
-    fit(sl, "08_커버리지_곡선.png", M, 2.42, 7.2, 3.5)
-    fit(sl, "06_SOC_사각지대.png", M + 7.5, 2.42, 4.4, 3.5)
-    rect(sl, M, 6.1, W - 2 * M, .82, LIGHT)
-    tb(sl, M + .3, 6.3, 11.5, .5,
-       "실무적 가치 — 예산 심의에서 가장 자주 나오는 질문은 '이걸 왜 이 순서로 하느냐'와 '반만 하면 어떻게 되느냐'다.\n"
-       "이 곡선은 두 질문에 동시에 답한다. 좌측 그림의 좌상단 영역(고령↑·SOC↓)이 최우선 사각지대다.",
-       12, False, INK, line=1.5)
-    footer(sl, n)
 
-    # ══ 신설. 이 제안이 닿았으면 하는 분들 ═══════════════════
+def _slide_people(prs, S, cbi, n):
+    # ══ 이 제안이 닿았으면 하는 분들 ═════════════════════════
     n += 1
     sl = slide(prs, "FOR WHOM", "결국, 이런 분들께 닿았으면 합니다",
                "지수와 모델은 수단일 뿐입니다. 저희가 계속 떠올린 것은 아래 네 분의 하루였습니다.")
@@ -660,7 +690,11 @@ def _part3(prs, S, cbi, ew, sites, prov, n):
        12, False, INK, line=1.5)
     footer(sl, n)
 
-    # ══ 17. 정책 활용 시나리오 ═══════════════════════════════
+    return n
+
+
+def _slide_tail(prs, S, cbi, ew, sites, prov, n):
+    # ══ 정책 활용 시나리오 ═══════════════════════════════════
     n += 1
     sl = slide(prs, "APPLICATION", "실무에 이렇게 보탬이 되면 좋겠습니다",
                "따로 시간을 내어 다뤄야 하는 연구물이 아니라, 하시던 업무 곁에 놓고 참고하실 수 있는 자료로 준비했습니다.")

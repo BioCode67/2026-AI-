@@ -78,4 +78,9 @@ def provenance_table() -> pd.DataFrame:
 
 
 def is_all_real() -> bool:
-    return all(v["status"] == "REAL" for v in I.PROVENANCE.values())
+    return all(v["status"] in ("REAL", "PARTIAL") for v in I.PROVENANCE.values())
+
+
+def has_synthetic() -> bool:
+    """예시(illustrative) 값이 하나라도 섞였는가 — 제출 전 경고 판단용."""
+    return any(v["status"] == "ILLUSTRATIVE" for v in I.PROVENANCE.values())

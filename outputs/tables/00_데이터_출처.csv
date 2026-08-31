@@ -1,6 +1,6 @@
 ﻿지표군,상태,출처,비고,행수
 인구,REAL,행안부 주민등록 인구통계(jumin.mois.go.kr),"2021~2026년(5년환산), 25개 생활권, 연령기준 2026년07월",335
-상권,ILLUSTRATIVE,예시 생성(seed=20260832),data/raw/localdata_license*.csv 투입 시 자동 대체,0
-생활SOC,ILLUSTRATIVE,예시 생성(seed=20260833),data/raw/facility_*.csv 투입 시 자동 대체,0
-주거,ILLUSTRATIVE,예시 생성(seed=20260834),data/raw/vacant_house.csv 투입 시 자동 대체,0
-이동성,ILLUSTRATIVE,예시 생성(seed=20260836),data/raw/bus_stop.csv 투입 시 자동 대체,0
+상권,MISSING,미확보,상가정보 또는 LOCALDATA 인허가 파일을 넣으면 산출됩니다,0
+생활SOC,MISSING,미확보,facility_*.csv 또는 상가정보를 넣으면 산출됩니다,0
+주거,MISSING,미확보,빈집 통계(천안시 동남구·서북구 단위)를 넣으면 산출됩니다,0
+이동성,MISSING,미확보,정류소 위치/주소가 담긴 파일이 필요합니다(노선 현황만으로는 불가),0

@@ -65,9 +65,17 @@ def coverage(G: pd.DataFrame, pts: pd.DataFrame, soc: str, r=SERVICE_R) -> np.nd
     return cov
 
 
+class InsufficientData(RuntimeError):
+    """입지 최적화에 필요한 최소 데이터가 없을 때 — 이 단계만 건너뛴다."""
+
+
 def greedy_sites(zone: pd.DataFrame, pts: pd.DataFrame, n_sites=12,
                  max_per_zone=2) -> pd.DataFrame:
     """max_per_zone: 예산 형평성 제약 — 한 생활권 집중 배정을 막는다."""
+    if pts is None or not len(pts) or "lat" not in pts.columns:
+        raise InsufficientData(
+            "기존 생활SOC 위치 자료가 없어 커버리지를 계산할 수 없습니다. "
+            "상가정보 또는 생활SOC 표준데이터(facility_*.csv)를 넣으면 실행됩니다.")
     G = demand_grid(zone)
     zi = zone.set_index("zone")
     total_demand = G["demand"].sum()
@@ -78,7 +86,16 @@ def greedy_sites(zone: pd.DataFrame, pts: pd.DataFrame, n_sites=12,
         uncovered[soc] = ~coverage(G, pts, soc)
 
     # 후보지: 빈집률·노후도 상위 생활권의 격자 (도시재생 유휴부지 대리변수)
-    renew = (zi["vacancy_rate"].rank(pct=True) + zi["old_building"].rank(pct=True)) / 2
+    parts, used = [], []
+    for c, lab in (("vacancy_rate", "빈집률"), ("old_building", "노후도")):
+        if c in zi.columns and pd.to_numeric(zi[c], errors="coerce").notna().any():
+            parts.append(pd.to_numeric(zi[c], errors="coerce").rank(pct=True))
+            used.append(lab)
+    if not parts:      # 주거 자료 미확보 시 — 확보된 지표로 재생 필요도를 근사
+        parts = [(1 - zi["CBI"].rank(pct=True)), zi["aging_ratio"].rank(pct=True)]
+        used = ["CBI 열위", "고령비율"]
+    renew = sum(parts) / len(parts)
+    print(f"    · 후보지 점수 기준: {', '.join(used)}")
     G["renew_score"] = G.zone.map(renew)
     cand = G[G.renew_score > 0.35].index.to_numpy()
     rng = np.random.default_rng(RANDOM_SEED)

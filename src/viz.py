@@ -272,12 +272,24 @@ def fig_domain_heat(cbi):
 
 # ── 3. 격차 추이 ─────────────────────────────────────────────
 def fig_gap_trend(panels, cbi):
-    pop, biz = panels["pop"], panels["biz"]
+    """데이터가 있는 패널만 그린다(상권 자료가 없으면 인구 한 장만)."""
     t = cbi["ztype"]
-    fig, axes = plt.subplots(1, 2, figsize=(12.8, 5.0))
-    for ax, (d, col, ttl) in zip(axes, [
-            (pop.assign(ztype=pop.zone.map(t)), "pop", "인구"),
-            (biz.assign(ztype=biz.zone.map(t)), "active", "영업 중 사업체")]):
+    cands = []
+    for d, col, ttl in ((panels["pop"], "pop", "인구"),
+                        (panels["biz"], "active", "영업 중 사업체")):
+        if d is None or not len(d) or col not in d.columns:
+            continue
+        d = d.dropna(subset=[col])
+        if d.empty or d["year"].nunique() < 2:
+            continue
+        cands.append((d.assign(ztype=d.zone.map(t)), col, ttl))
+    if not cands:
+        return
+
+    fig, axes = plt.subplots(1, len(cands), figsize=(6.6 * len(cands), 5.0),
+                             squeeze=False)
+    axes = axes[0]
+    for ax, (d, col, ttl) in zip(axes, cands):
         ends = []
         for ty in TYPE_ORDER:
             sr = d[d.ztype == ty].groupby("year")[col].sum()
@@ -294,13 +306,14 @@ def fig_gap_trend(panels, cbi):
             gap = max((hi - lo) * .075, 1.6)
             ys = spread([e[1] for e in ends], gap)
             for (xe, ye, ty), yl in zip(ends, ys):
-                ax.annotate(f"{ty} {ye:.0f}", (xe, ye), xytext=(xe + (hi - lo) * .004 + .35, yl),
+                ax.annotate(f"{ty} {ye:.0f}", (xe, ye),
+                            xytext=(xe + (hi - lo) * .004 + .35, yl),
                             va="center", fontsize=T_NOTE, color=INK_2,
                             arrowprops=dict(arrowstyle="-", color=AXIS, lw=.8,
                                             shrinkA=2, shrinkB=3)
                             if abs(yl - ye) > gap * .3 else None)
         ax.axhline(100, color=AXIS, ls=(0, (4, 3)), lw=1)
-        base = int(d.year.min())
+        base = int(d["year"].min())
         ax.set_title(f"{ttl} 추이 ({base}=100)", loc="left", fontsize=12.5, pad=10)
         ax.set_ylabel("지수"); ax.set_xlabel("연도")
         ax.margins(x=.22); _spines(ax, keep=("bottom",))
