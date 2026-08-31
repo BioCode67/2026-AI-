@@ -94,6 +94,17 @@ def main(n_sites: int = 12):
     import make_deck
     make_deck.save()
 
+    # PDF 는 LibreOffice 가 있을 때만 만든다(없어도 파이프라인은 정상 완료)
+    import subprocess
+    sh = ROOT_TOOLS = Path(__file__).resolve().parent.parent / "tools" / "make_pdf.sh"
+    if sh.exists():
+        try:
+            out = subprocess.run(["bash", str(sh)], capture_output=True, text=True,
+                                 timeout=420)
+            print(out.stdout.rstrip() or "    · PDF 변환 건너뜀")
+        except Exception as e:
+            print(f"    · PDF 변환 건너뜀 ({e})")
+
     print("\n" + BAR)
     print(f"  완료 ({time.time() - t0:.1f}s)   실데이터 지표: {n_real}/{len(prov)}")
     if not all_real:
@@ -103,7 +114,7 @@ def main(n_sites: int = 12):
     else:
         print("  ✅ 전 지표 실데이터 — 그대로 제출 가능")
     print("  산출물: outputs/figures/(8장) · outputs/tables/(9종) ·"
-          " deliverables/{dashboard.html, 기획서_*.pptx}")
+          " deliverables/{dashboard.html, 기획서_*.pptx, 기획서_*.pdf}")
     print(BAR)
     return summary
 

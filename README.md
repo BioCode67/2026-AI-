@@ -1,6 +1,6 @@
 # 천안 균형발전 나침반 (CBC · Cheonan Balance Compass)
 
-**2026년 천안시 AI·데이터 기반 정책 아이디어 경진대회** 출품작
+**2026년 천안시 AI·데이터 기반 정책 아이디어 경진대회** 출품작 · 팀 **다시봄**
 · 지정과제 **③ 지역균형발전** · 응모분야 **AI 모델 개발**
 
 > 천안시 25개 생활권의 생활여건 차이를 공공데이터로 살펴보고(Diagnose),
@@ -56,7 +56,7 @@ src/
   make_deck.py  기획서 PPTX 자동 생성
   run_all.py    전체 실행 진입점
 outputs/figures  그림 8종      outputs/tables  분석표 9종
-deliverables/    dashboard.html · 기획서.pptx
+deliverables/    dashboard.html · 기획서.pptx · 기획서.pdf
 ```
 
 ## 데이터 윤리
@@ -64,3 +64,14 @@ deliverables/    dashboard.html · 기획서.pptx
 - 정식 공공데이터 포털에서 내려받은 파일만 사용 (크롤링·상업용 민간데이터 미사용)
 - 전 지표가 **생활권 단위 집계값** — 개인식별정보를 다루지 않음
 - 모든 출처·수집시점·컬럼을 `outputs/tables/00_데이터_출처.csv` 에 자동 기록
+
+## 제출물 만들기
+
+```bash
+python3 src/run_all.py          # 그림·표·대시보드·기획서(PPTX)·PDF 를 한 번에 생성
+bash tools/make_pdf.sh          # PDF 만 다시 만들 때
+```
+
+PDF 변환에는 LibreOffice Impress 가 필요하다.
+맑은 고딕이 없는 환경에서는 `tools/fonts.conf` 를 `~/.config/fontconfig/fonts.conf` 로
+복사해 나눔고딕으로 치환해야 한글이 깨지지 않는다.

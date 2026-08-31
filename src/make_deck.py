@@ -16,8 +16,14 @@ from config import TAB, FIG, DELIV
 
 # 한글 본문 폰트. PowerPoint 는 한글에 East-Asian 서체를, 영문·숫자에 Latin 서체를
 # 따로 적용하므로 두 축을 함께 지정한다(하나만 넣으면 다른 쪽이 기본값으로 떨어져 깨진다).
-FONT    = "맑은 고딕"          # East-Asian (한글)
-FONT_LAT = "Segoe UI"          # Latin (영문·숫자) — 없으면 시스템 산세리프로 대체됨
+# 한글·영문을 같은 서체로 지정한다.
+# 서로 다른 서체를 주면 뷰어(특히 PDF 변환기)가 한글↔문장부호 경계를 '스크립트 경계'로
+# 보고 자동으로 자간을 벌려 "바라며 ," 처럼 부호 앞에 공백이 생긴다.
+TEAM    = "다시봄"
+MEMBERS = "팀원 이름을 적어주세요"
+
+FONT     = "맑은 고딕"          # East-Asian (한글)
+FONT_LAT = "맑은 고딕"          # Latin (영문·숫자) — 같은 서체로 묶어 경계 자체를 없앰
 
 def _hex(h):
     return C(int(h[1:3], 16), int(h[3:5], 16), int(h[5:7], 16))
@@ -171,7 +177,7 @@ def footer(sl, n, txt="천안 균형발전 나침반(CBC)"):
     tb(sl, W - M - 1, H - .46, 1, .3, str(n), 9.5, False, MUTE, align=PP_ALIGN.RIGHT)
 
 
-def build(team="○○팀", members="홍길동"):
+def build(team=TEAM, members=MEMBERS):
     S = json.loads((TAB / "09_요약지표.json").read_text(encoding="utf-8"))
     prov = pd.read_csv(TAB / "00_데이터_출처.csv")
     cbi  = pd.read_csv(TAB / "02_CBI_균형발전지수.csv")
@@ -259,24 +265,21 @@ def build(team="○○팀", members="홍길동"):
              (f'{S["지니계수"]}', f'25개 생활권 CBI 지니계수 — 변동계수 {S["변동계수"]}%'),
              (f'{S["최고"].split()[0]} ↔ {S["최저"].split()[0]}',
               f'최상위 {S["최고"].split()[1]}점 ↔ 최하위 {S["최저"].split()[1]}점, 같은 시(市)'),
-             (f'{len(cbi[cbi.stage == "쇠퇴"])}개 생활권', '여러 지표가 함께 낮은 유형으로 분류되었습니다')]
+             _lowest_stage_fact(cbi)]
     for i, (big, small) in enumerate(facts):
         y = 3.12 + i * .78
         tb(sl, M + .32, y, 2.55, .38, big, 19, True, ACC)
         tb(sl, M + .32, y + .38, 5.4, .3, small, 11.5, False, MUTE, line=1.35)
     rect(sl, M + 6.35, 2.42, 5.55, 3.9, LIGHT)
     tb(sl, M + 6.65, 2.66, 5, .3, "왜 지금 살펴보면 좋을까요", 14.5, True, INK)
-    bullets(sl, M + 6.65, 3.14, 4.95, [
-        ("변화는 서서히, 그러나 되돌리기는 어렵게 옵니다",
-         "상권이 비면 오가는 분이 줄고, 그래서 더 비는 흐름이 생깁니다.\n"
-         "많이 진행된 뒤에 쓰는 예산은 같은 금액으로도 효과가 적습니다."),
+    bullets(sl, M + 6.65, 3.06, 4.9, [
+        ("변화는 서서히, 되돌리기는 어렵게 옵니다",
+         "상권이 비면 오가는 분이 줄고, 그래서 더 비는 흐름이 생깁니다."),
         ("조짐은 눈에 잘 띄지 않습니다",
-         "통계가 뚜렷하게 나빠졌을 때는 이미 상당히 진행된 뒤인 경우가 많습니다.\n"
-         "미리 알아차릴 신호가 하나쯤 더 있으면 좋겠다는 생각에서 출발했습니다."),
-        ("천안시는 이런 관찰에 좋은 조건을 갖췄습니다",
-         "신도심·기성시가지·원도심·읍·농촌면이 한 시(市) 안에 모두 있어,\n"
-         "동네 유형별로 무엇이 필요한지 함께 살펴볼 수 있습니다."),
-    ], size=12.5, gap=.4)
+         "통계가 뚜렷해졌을 때는 이미 많이 진행된 뒤인 경우가 많습니다."),
+        ("천안시는 이런 관찰에 좋은 조건입니다",
+         "신도심·기성시가지·원도심·읍·농촌면이 한 시(市) 안에 모두 있습니다."),
+    ], size=12.5, gap=.52)
     footer(sl, n)
 
     # ══ 4. 기존 접근의 한계 ═══════════════════════════════════
@@ -390,6 +393,16 @@ def build(team="○○팀", members="홍길동"):
 
     n = _part2(prs, S, cbi, ew, sites, prov, n)
     return prs, S, cbi, ew, sites, prov, n
+
+
+def _lowest_stage_fact(cbi):
+    """군집 수에 따라 라벨이 달라지므로, 실제로 존재하는 최하위 유형을 집계한다."""
+    if "stage" not in cbi.columns or not len(cbi):
+        return ("—", "군집 결과 없음")
+    order = cbi.groupby("stage")["CBI"].mean().sort_values()
+    low = order.index[0]
+    n = int((cbi["stage"] == low).sum())
+    return (f"{n}개 생활권", f"여러 지표가 함께 낮은 '{low}' 유형으로 분류되었습니다")
 
 
 def _part2(prs, S, cbi, ew, sites, prov, n):
@@ -767,7 +780,7 @@ def _part3(prs, S, cbi, ew, sites, prov, n):
     return n
 
 
-def save(team="○○팀", members="홍길동"):
+def save(team=TEAM, members=MEMBERS):
     prs, *_ = build(team, members)
     out = DELIV / "기획서_천안균형발전나침반_CBC.pptx"
     prs.save(str(out))
